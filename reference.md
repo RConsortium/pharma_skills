@@ -584,6 +584,20 @@ For 14+ hypotheses, place labels at 30% or 70% along arrows instead of 50% midpo
 ### Sanity-check: events vs patient count
 After computing required events for a subpopulation, verify that the events are achievable given the number of patients. The asymptotic maximum events from N patients (both arms, 1:1) is approximately `N × avg(λ_C/(λ_C+η), λ_E/(λ_E+η))` where η is the dropout hazard. If required events exceed ~95% of this maximum, the design is infeasible or will require an extremely long follow-up. Flag this immediately rather than proceeding with an impossible event target.
 
+### High OS IF at IA: increasing N lowers the OS information fraction
+When the OS IF at the IA is very high (>85%), it means the IA and FA provide nearly the same OS information — the FA adds very few incremental events. This is common for short-survival endpoints (e.g., 2L SCLC with median OS 8–10 months) where most OS events occur before the PFS-triggered IA.
+
+**Increasing sample size lowers OS IF at the IA.** The mechanism:
+1. More patients → PFS events accrue faster → IA moves earlier in calendar time
+2. Earlier IA → fewer OS events at IA (lower numerator)
+3. Larger risk set between IA and FA → incremental OS events accrue faster
+4. Required OS events at FA stay the same (power-driven) → denominator unchanged or slightly higher
+5. Net effect: OS IF drops, IA and FA are better separated, study duration may shorten
+
+This is counterintuitive because one might expect more patients to generate proportionally more events at both analyses, leaving the IF unchanged. The key insight is that the IA is triggered by a **fixed PFS event count**, not a fraction. With more patients, that count is reached earlier, before OS has matured as much.
+
+**When this occurs, run an N sensitivity analysis** exploring N values centered around the user's stated feasibility range (not from the computed minimum). Present a table showing how OS IF, IA timing, FA timing, and study duration change with N so the user can make an informed choice.
+
 ### Beta spending futility and sample size (test.type=3 vs test.type=4)
 **Binding futility (test.type=3):** Beta spending inflates the required events because the design accounts for trials that stop early for futility under H1, losing power. The more aggressive the futility (less negative `sflpar`), the larger the inflation:
 - `sflpar=-2`: ~6% more events than no-futility design

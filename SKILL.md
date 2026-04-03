@@ -29,6 +29,16 @@ When the conversation gets long and context is compressed, preserve information 
 
 ## Workflow
 
+**Task Progress Tracking:** At the start of step 6 (after user confirms inputs), create a task checklist using `TaskCreate` for all remaining steps. Mark each task `in_progress` when starting and `completed` when done. Typical tasks:
+1. Write and run R design script (gsd_design.R)
+2. Check IA timing constraints
+3. Run verification simulation (gsd_verification.R)
+4. Generate Word report (gsd_report.py)
+
+This gives the user a visual progress indicator (spinner → checkmark) throughout the computation.
+
+---
+
 1. **Create output subfolder** — Immediately after the user answers Q1 (disease/setting), create `output/gsd_{disease}_{endpoints}_{YYYYMMDD}/` (e.g., `output/gsd_1l_mnsclc_pfs_os_20260327/`). Use a placeholder for `{endpoints}` if not yet known (e.g., `output/gsd_1l_mnsclc_20260327/`), and rename later once endpoints are confirmed. ALL outputs — including any exploratory plots or comparisons generated during the Q&A phase — go in this subfolder.
 2. **Collect inputs** — Ask the questions below, one at a time
 3. **Summarize and confirm** — Present a clean table, get user confirmation
@@ -101,6 +111,19 @@ The choice depends on how much excess power exists:
 When the user requests a smaller sample size, always flag the trade-off: fewer patients means fewer events per month, so it takes longer to accumulate the required events. Reducing N shortens enrollment but may lengthen the study duration (time to FA). Present both numbers in the comparison table so the user can make an informed decision.
 
 Example: reducing N from 760 to 640 may shorten enrollment by 4 months but extend the FA by 4.5 months because OS events accrue more slowly with fewer patients.
+
+### Sample Size and OS Information Fraction
+
+When the OS information fraction at the IA is very high (e.g., >85%), **increasing** sample size can lower the OS IF — especially for short-survival endpoints (e.g., 2L SCLC with median OS 8–10 months). The mechanism:
+
+1. **More patients → PFS events accrue faster → IA moves earlier in calendar time** — the PFS event target is reached sooner, so the IA happens at a younger study age when fewer OS events have occurred.
+2. **Fewer OS events at IA** — because the IA is earlier, the OS numerator (events at IA) drops.
+3. **Larger risk set → faster incremental OS events** — more patients still at risk means OS events between IA and FA accrue faster, so the FA doesn't need to be pushed much later.
+4. **Net effect**: lower OS IF at IA, shorter study duration, better separation between IA and FA.
+
+This is counterintuitive — one might expect that more patients would just generate proportionally more events at both analyses, leaving the IF unchanged. The key is that the IA is triggered by a *fixed* PFS event count, not a fraction. With more patients, that count is reached earlier, before OS has matured as much.
+
+**When to flag this**: If the computed OS IF at IA is >85%, run an N sensitivity analysis and present the trade-off table showing how OS IF, IA timing, and study duration change with increasing N. This is particularly important for short-survival diseases where the event ceiling with a small N causes very high OS IF.
 
 ---
 
@@ -333,6 +356,7 @@ Collect design parameters by asking **ONE question at a time**. Wait for the use
 13b. "What range of total sample size do you consider feasible for this trial? This helps us check whether the computed design falls within practical limits."
     - Example: "600–900 patients" or "no more than 800"
     - If the user provides a range, store it. After the design is computed, compare the resulting total N against this range. If N falls outside the range, flag it and discuss options (adjust alpha split, relax power target, change enrollment, etc.).
+    - **N sensitivity exploration must center around the user's stated range.** The user's range reflects what is feasible and desired — anchor exploration there. If the user says "less than 600", explore e.g., 500–600 in steps of 20. If the user says "600–900", explore that range. Do NOT start from the computed minimum N and work up — that wastes the user's time on infeasible or uninteresting values.
     - If the user says "no constraint" or declines to specify, skip and proceed.
 
 14. "What percentage of patients do you expect to drop out of the study per year?"
