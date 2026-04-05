@@ -11,6 +11,7 @@ description: >
 |------|-----------------|--------------|
 | `reference.md` | Design guidance, parameter tables, spending functions, key rules, failure modes, analysis framework, protocol references | After collecting user inputs, before writing R code |
 | `examples.md` | All R code examples organized by design pattern | When you need code for a specific pattern — read only the relevant section |
+| `post_design.md` | IA timing checks (warning messages, user options), verification procedure (pass criteria, lrsim code, log template) | After computing the design (step 6), before delivering |
 
 Do NOT read these files upfront. Read them only when you reach the corresponding step.
 
@@ -46,6 +47,13 @@ This gives the user a visual progress indicator (spinner → checkmark) througho
 5. **Read relevant sections of `examples.md`** — Get code for the chosen design pattern
 6. **Write and run the R design script** — Compute boundaries, save results to `gsd_results.json`, generate `multiplicity_diagram.png` via `graphicalMCP::graph_create()` + `plot()`. Save all outputs to the subfolder created in step 1.
 
+   **Transition matrix validation (step-down designs only).** Immediately after defining the transition matrix in the R script, call `validate_transition_matrix(tm, gate_prereqs)` (see `examples.md` → "Transition Matrix Validation"). This function checks Rule 3 programmatically and stops with an error if any transition routes alpha to a hypothesis that must already be rejected. The script must not proceed to boundary computation if validation fails.
+
+   **N-first approach.** N is a top-level design parameter — all results (IA timing, FA timing, events, power) depend on N. The design script follows three phases:
+   - **Phase A: Determine starting N** — Compute required events via Schoenfeld, estimate minimum N from events and prevalence, pick starting N from user's feasibility range (Q13b). Derive R from enrollment ramp. See `reference.md` → "N-First Design Algorithm".
+   - **Phase B: Design at fixed N** — All calculations use fixed R/N. Find IA time (event-driven), derive OS IF, compute boundaries. No `gsSurv()` for enrollment sizing.
+   - **Phase C: Evaluate and adjust** — If requirements aren't met (power, timing, OS IF), present N adjustment as an option alongside other levers. Re-run Phase B.
+
    **IA/FA timing must be event-driven.** The design script should:
    1. Compute the required events for each hypothesis that has a power target
    2. Find the calendar time when those events accrue (event-driven timing)
@@ -70,60 +78,18 @@ This gives the user a visual progress indicator (spinner → checkmark) througho
 10. **Copy all scripts** — Copy `gsd_design.R`, `gsd_report.py`, and `gsd_verification.R` into the output subfolder.
 11. **Deliver outputs** — Report the subfolder path, summarize results, and present the key strengths/limitations to the user
 
-### Design Iteration: Comparison Table
+### Design Iteration
 
-When the user requests a modification to an existing design (e.g., merge IAs, change alpha split, add data prep buffer), **automatically produce a before/after comparison table** after re-running the design. This helps the user see the impact of their change at a glance.
+- **Comparison table**: When the user requests a modification, automatically produce a before/after table showing all changed metrics. Bold improved values. Present before proceeding with verification.
+- **Ask before leaping**: When a structural change (merging IAs, changing triggers) makes parameters free or constrained differently, ask the user before re-deriving. See `reference.md` → "Design Iteration Guardrails".
+- **Over-powered hypotheses**: See `reference.md` → "Handling Over-Powered Hypotheses" for options (increase alpha vs accept derived power).
 
-Include all metrics that changed. Example format:
+### Sample Size and Study Duration
 
-| | Previous | Revised |
-|--|----------|---------|
-| **Total N** | 850 (425/arm) | **824 (412/arm)** |
-| **Analyses** | IA1 + IA2 + FA | **IA + FA** |
-| **IA timing** | 45.7 + 47.6 mo | **46.6 mo** |
-| **FA timing** | 56.7 mo | **55.6 mo** |
-| **PFS alpha** | 0.005 | **0.002** |
-| **OS alpha** | 0.020 | **0.023** |
-| **PFS power** | 97.6% | **94.8%** |
-| **OS power** | 90.0% | **90.0%** |
-
-Bold the revised values that improved. Note any trade-offs (e.g., "PFS power decreased from 97.6% to 94.8% but was overpowered before"). Present this table to the user before proceeding with verification.
-
-### Design Iteration: Ask Before Leaping
-
-When a design modification changes the structure of the design (e.g., merging IAs, dropping an endpoint from an analysis, changing triggers), **do not silently re-derive affected parameters**. Instead, identify which parameters become free or constrained differently under the new structure, and ask the user for input before proceeding. See `reference.md` → "Design Iteration Guardrails" for specific scenarios and examples.
-
-### Handling Over-Powered Hypotheses
-
-When a hypothesis has power substantially above the target (e.g., >95% vs 90% target), there are two options to reduce the required events and potentially bring the analysis earlier or reduce sample size. Present both to the user:
-
-- **A) Increase assigned alpha** — More alpha → fewer events needed for the same power target. The extra alpha must come from another hypothesis. Best when the hypothesis is close to the power target and you need a modest reduction in events. Trade-off: the donor hypothesis gets less alpha.
-
-- **B) Reduce target events (accept derived power)** — Don't target 90% power for this hypothesis. Let the analysis timing be driven by other hypotheses, and accept whatever power results from the available events. Best when the hypothesis has large excess power (e.g., 96%+) and the event count is driven by a shared timeline. Trade-off: no guarantee of 90% power, but with substantial excess it will likely remain well above 90%.
-
-The choice depends on how much excess power exists:
-- **Close to 90% (e.g., 91–93%)**: Option A is safer — a small alpha increase ensures the target is met with fewer events
-- **Well above 90% (e.g., 95%+)**: Option B is cleaner — no need to redistribute alpha; just accept derived power
-- **Both can be combined**: increase alpha modestly AND accept that power may land above 90% rather than exactly at 90%
-
-### Sample Size vs Study Duration Trade-off
-
-When the user requests a smaller sample size, always flag the trade-off: fewer patients means fewer events per month, so it takes longer to accumulate the required events. Reducing N shortens enrollment but may lengthen the study duration (time to FA). Present both numbers in the comparison table so the user can make an informed decision.
-
-Example: reducing N from 760 to 640 may shorten enrollment by 4 months but extend the FA by 4.5 months because OS events accrue more slowly with fewer patients.
-
-### Sample Size and OS Information Fraction
-
-When the OS information fraction at the IA is very high (e.g., >85%), **increasing** sample size can lower the OS IF — especially for short-survival endpoints (e.g., 2L SCLC with median OS 8–10 months). The mechanism:
-
-1. **More patients → PFS events accrue faster → IA moves earlier in calendar time** — the PFS event target is reached sooner, so the IA happens at a younger study age when fewer OS events have occurred.
-2. **Fewer OS events at IA** — because the IA is earlier, the OS numerator (events at IA) drops.
-3. **Larger risk set → faster incremental OS events** — more patients still at risk means OS events between IA and FA accrue faster, so the FA doesn't need to be pushed much later.
-4. **Net effect**: lower OS IF at IA, shorter study duration, better separation between IA and FA.
-
-This is counterintuitive — one might expect that more patients would just generate proportionally more events at both analyses, leaving the IF unchanged. The key is that the IA is triggered by a *fixed* PFS event count, not a fraction. With more patients, that count is reached earlier, before OS has matured as much.
-
-**When to flag this**: If the computed OS IF at IA is >85%, run an N sensitivity analysis and present the trade-off table showing how OS IF, IA timing, and study duration change with increasing N. This is particularly important for short-survival diseases where the event ceiling with a small N causes very high OS IF.
+- **N ↔ duration trade-off**: Fewer patients → slower event accrual → longer study. Always present both N and timing in the comparison table. See `reference.md` → "High OS IF at IA" for the full mechanism.
+- **OS IF > 85%**: Increasing N can lower OS IF at IA. Run an N sensitivity table. See `reference.md` → "High OS IF at IA".
+- **Short-survival diseases** (median OS 8–10 mo): The N-duration effect is disproportionately large. If FA is too late, present N sensitivity table first — modest N increases often solve the problem. See `reference.md` → "Short-survival amplification".
+- **N sensitivity table values must be consistent with the enrollment ramp.** Iterate over the last enrollment period duration K and compute actual N = sum(gamma × R). Do NOT use arbitrary round numbers.
 
 ---
 
@@ -204,10 +170,19 @@ Collect design parameters by asking **ONE question at a time**. Wait for the use
 
    4e. "When a hypothesis is rejected, where should its freed alpha flow?"
 
-   **Apply the Alpha Recycling Priority Rules** (see `reference.md` → "Alpha Recycling Priority Rules") to construct the transition matrix, then present it to the user for confirmation. Do NOT ask the user to fill in raw transition weights — derive them from the rules:
+   **Before applying any recycling rules, trace the gating chain for EVERY hypothesis.** For each hypothesis H, list which other hypotheses must already be rejected for H to be testable. These are H's "gate prerequisites" — H can NEVER send alpha to any of them (they are already rejected). Write out this table explicitly before constructing the transition matrix:
+
+   | Hypothesis | Gate prerequisites (already rejected when H is tested) | Eligible recipients |
+   |------------|-------------------------------------------------------|-------------------|
+   | H1 | (none — tested initially) | H2, H3, H4 |
+   | H2 | (none — tested initially) | H1, H3, H4 |
+   | H3 | H2, H4 (gated behind both) | H1 only |
+   | H4 | H2 (gated behind H2) | H1, H3 |
+
+   Only after completing this table, apply the Alpha Recycling Priority Rules to the **eligible recipients only**:
    - Rule 1: PFS rejection → OS same population
    - Rule 2: OS rejection → OS next population
-   - Rule 3: Do not pass alpha to already-rejected hypotheses (gating constraint)
+   - Rule 3: Do not pass alpha to already-rejected hypotheses (gating constraint) — **enforced by the table above**
    - Rule 4: Split alpha when multiple hypotheses could benefit
    - Rule 5: Use 1.0 vs 0.999 based on intent:
      - **1.0** when only one hypothesis is intended to receive alpha (e.g., PFS → OS same population — unambiguous, single destination)
@@ -357,6 +332,7 @@ Collect design parameters by asking **ONE question at a time**. Wait for the use
     - Example: "600–900 patients" or "no more than 800"
     - If the user provides a range, store it. After the design is computed, compare the resulting total N against this range. If N falls outside the range, flag it and discuss options (adjust alpha split, relax power target, change enrollment, etc.).
     - **N sensitivity exploration must center around the user's stated range.** The user's range reflects what is feasible and desired — anchor exploration there. If the user says "less than 600", explore e.g., 500–600 in steps of 20. If the user says "600–900", explore that range. Do NOT start from the computed minimum N and work up — that wastes the user's time on infeasible or uninteresting values.
+    - **N values must be consistent with the enrollment ramp.** Do NOT use arbitrary round numbers (e.g., 520, 560, 600). Instead, compute the actual N that results from varying the last enrollment period duration. With a ramp of 5/mo×2mo + 20/mo×3mo + 30/mo×Kmo, the only free parameter is K (months of steady-state enrollment). Iterate over K values and report the resulting N = 5×2 + 20×3 + 30×K = 70 + 30K. For example: K=15→520, K=16→550, K=17→580, K=18→610. This ensures every N in the sensitivity table is achievable with the stated enrollment rates.
     - If the user says "no constraint" or declines to specify, skip and proceed.
 
 14. "What percentage of patients do you expect to drop out of the study per year?"
@@ -450,10 +426,37 @@ Based on the collected inputs, identify the closest design pattern from `example
 **If no pattern matches exactly**, compose the design from building blocks across multiple patterns. The patterns are not mutually exclusive — real designs often combine elements. For example:
 - A co-primary design with non-proportional hazards → design under PH (Pattern 6 or 7), then apply NPH Evaluation Workflow
 - A single endpoint with multi-population subgroups → combine Patterns 1 + 5
-- A multi-population co-primary with single-look PFS → combine Patterns 5 + 7
+- A multi-population co-primary with single-look PFS → combine Patterns 5 + 7 (see "Pattern 5+7 Combo" below)
 - A 3-endpoint design with mixed fixed-sequence and alpha splitting → adapt Pattern 5
 
 When composing, read `reference.md` → "Analysis Framework" for the 5-perspective approach (hypotheses, multiplicity, IA plan, boundaries, power) to structure any custom design systematically.
+
+**Pattern 5+7 Combo: Multi-Population with Single-Look PFS**
+
+This is a common pattern for aggressive diseases (e.g., 2L SCLC) with short PFS median. Uses the N-first algorithm (see `reference.md` → "N-First Design Algorithm"):
+
+**Phase A — Determine starting N:**
+1. Compute required events per hypothesis via Schoenfeld formula
+2. Estimate N_min using `estimate_min_N()` (see `examples.md`)
+3. Pick starting N from user's feasibility range (Q13b), close to N_min
+4. Derive R from enrollment ramp (iterate K for last period)
+
+**Phase B — Design at fixed N:**
+1. Find IA time when PFS-ES reaches its Schoenfeld event target (PFS-triggered IA)
+2. Compute OS events at IA → derive OS IF
+3. Design OS boundaries with `gsSurv(gamma_es, R_fixed, minfup=NULL, T=NULL)` — only for boundaries, not enrollment
+4. Find FA time when OS-ES reaches its required events
+5. Recompute all cross-endpoint events at final IA and FA times
+6. Compute single-look PFS boundaries via `compute_single_look_boundary()`
+7. Compute OS GSD boundaries via `compute_gsd_boundaries()`
+8. Gated hypotheses: compute boundaries at full alpha (0.025)
+
+**Phase C — Evaluate and adjust N:**
+If power < target, timing too late, or OS IF too high → present N adjustment alongside other levers (alpha reallocation, relaxed power). Re-run Phase B.
+
+**N is a top-level design parameter.** All results depend on N. Do NOT let `gsSurv()` determine enrollment — always fix N first, then derive everything from the fixed enrollment.
+
+Key differences from standard Pattern 7: enrollment rates are scaled by prevalence for subgroup hypotheses, events are derived from prevalence (not `nSurv()`), and the multiplicity graph uses Maurer-Bretz with step-down or alpha-split gating.
 
 Then read `reference.md` and the relevant sections of `examples.md` to proceed.
 
@@ -461,70 +464,12 @@ Then read `reference.md` and the relevant sections of `examples.md` to proceed.
 
 ## IA Timing Checks
 
-After computing the design (step 6), perform ALL of the following timing checks. If any check fails, warn the user and present options before proceeding.
+After computing the design (step 6), **read `post_design.md` → "IA Timing Checks"** for the full checklist, warning messages, and user options.
 
-Use the user's answers from Q15 (minimum follow-up) and Q16 (minimum gap between analyses) as hard constraints. See `reference.md` → "IA Timing Constraints" for the full constraint resolution algorithm.
-
-**Note on data preparation buffer:** The minimum follow-up (Q15) and minimum gap (Q16) constraints already cover data preparation time. Do NOT ask for a separate buffer — it is redundant. The min follow-up ensures adequate time after enrollment for the first analysis; the min gap ensures enough separation between consecutive analyses (including IA→FA) to accommodate data cleaning, database lock, and review.
-
-**Checklist** (all must pass before proceeding):
-- [ ] IA1 occurs at least [Q15 answer] months after enrollment ends (or user accepted with rationale)
-- [ ] Consecutive analyses are at least [Q16 answer] months apart (or user accepted)
-- [ ] Co-primary endpoint power at each analysis meets user's target (if specified)
-
-### Check 1: IA before enrollment end
-
-Compare each IA calendar time against the enrollment duration. If any IA occurs **before** enrollment completes:
-
-1. **Automatically compute the minimum IF** using `min_if_past_enrollment()` from `examples.md` → "Minimum IF to Clear Enrollment".
-
-2. **Warn the user**:
-
-> "IA1 is estimated at ~X months, but enrollment doesn't complete until ~Y months.
-> The minimum IF for [triggering endpoint] at IA1 to clear enrollment is **~Z%**.
->
-> This is a concern because:
-> 1. **Enrollment bias** — releasing efficacy results while enrollment is ongoing could influence investigators' and patients' willingness to enroll
-> 2. **Incomplete sample** — not all planned patients contribute to the analysis
-> 3. **Operational complexity** — managing data cuts and enrollment simultaneously
->
-> Options:
-> - A) **Raise the triggering endpoint's IF** to at least ~Z%
-> - B) **Increase enrollment rate** — enrollment finishes faster
-> - C) **Set a minimum time constraint** — IA cannot occur before enrollment completes
-> - D) **Accept the current timing** — proceed as-is (document the rationale)"
-
-### Check 2: Data preparation time (IA too close to enrollment end or to another IA)
-
-After event targets are reached, studies typically need **3+ months** for data cleaning, database lock, and analysis preparation before the IA can actually be conducted. Check for:
-
-1. **IA too close to enrollment end**: If any IA occurs within 3 months after enrollment end, the actual data cut will happen later than planned. This means more events will have accrued than the design assumed — the boundaries remain valid but the analysis is slightly conservative (actual IF > planned IF). Warn the user and offer to adjust the IA trigger to account for the lag.
-
-2. **Consecutive IAs too close together**: If two consecutive analyses are less than 6 months apart, the data preparation windows overlap. It is operationally impractical to conduct two separate data cuts within 6 months — by the time one analysis is cleaned, locked, and reviewed, the next one is due. Warn the user and suggest merging the analyses or adjusting timing.
-
-**Warning message for data preparation lag** (adapt to specific numbers):
-
-> "The IA is estimated at ~X months, which is only ~Y months after enrollment ends at ~Z months. In practice, data cleaning, database lock, and analysis preparation typically take at least 3 months. By the time the IA is actually conducted (~X+3 months), more events will have accrued than planned:
-> - [endpoint] events: planned NNN → actual ~NNN at month X+3
-> - OS IF: planned XX% → actual ~XX% at month X+3
->
-> The boundaries remain valid (testing at higher IF with OBF-like spending is conservative), but the planned event counts won't match the actual data cut.
->
-> Options:
-> - A) **Build in a 3-month buffer** — set the IA trigger to the event count expected at month X+3 instead of month X. The design uses the actual IA timing for boundary computation.
-> - B) **Accept the mismatch** — keep the current trigger. The analysis will be slightly conservative.
-> - C) **Specify a different buffer** — use a custom preparation time (e.g., 4 or 6 months)"
-
-**Warning message for consecutive IAs too close** (adapt to specific numbers):
-
-> "IA1 at ~X months and IA2 at ~Y months are only ~Z months apart. With 3+ months needed for data preparation per analysis, these two data cuts would overlap operationally.
->
-> Options:
-> - A) **Merge into a single IA** — combine the two analyses into one, timed at the later analysis point
-> - B) **Increase the gap** — push one IA earlier or later to create at least 6 months of separation
-> - C) **Accept the current timing** — proceed knowing the operational challenge"
-
-Wait for the user to choose before proceeding. If they choose an adjustment, re-run the design with the updated parameters.
+Quick summary — all must pass before proceeding:
+- [ ] IA1 occurs at least [Q15 answer] months after enrollment ends
+- [ ] Consecutive analyses are at least [Q16 answer] months apart
+- [ ] Co-primary endpoint power at each analysis meets user's target
 
 ---
 
@@ -559,75 +504,12 @@ Key principle: **design the FA-triggering endpoint first** (it drives the study 
 
 ## Verification
 
-Every new design MUST be verified by simulation before delivery. Use `lrstat::lrsim()` to independently confirm the calculated design features.
+Every new design MUST be verified by simulation before delivery. **Read `post_design.md` → "Verification"** for the full procedure: what to verify, pass criteria, how to run `lrsim()`, and the verification log template.
 
-**Single-look (k=1) endpoints**: `lrsim()` works with `kMax=1`. Use `criticalValues = z_boundary` (single value), omit `futilityBounds`, and `plannedEvents = events` (single value). Same pass criteria apply.
+Quick pass criteria:
+- Power (H1): within ±2 pp of calculated
+- Type I error (H0): within ±0.5 pp of alpha
+- Events: within ±5% of calculated
+- Timing: within ±1 month of calculated
 
-### What to verify
-
-| Feature | Source (calculated) | Source (simulated) | Pass criterion |
-|---------|--------------------|--------------------|----------------|
-| Events at each IA/FA | `gsSurv()` output `n.I` | `lrsim()` median events at each analysis | Within 5% of calculated |
-| Calendar timing of IA/FA | `gsSurv()` output `T` | `lrsim()` median analysis times | Within 1 month of calculated |
-| Power (boundary crossing under H1) | `gsSurv()` or `gsDesign()` cumulative upper crossing prob | `lrsim()` rejection rate under alternative | Within 2 percentage points |
-| Type I error (under H0) | Alpha (e.g., 0.025) | `lrsim()` rejection rate under null (HR=1) | Within 0.5 percentage points of alpha |
-| Efficacy boundaries (Z-scale) | `gsSurv()` output `upper$bound` | Fed into `lrsim()` as `criticalValues` | Exact match (input, not verified) |
-
-### How to run
-
-Write a separate verification script that:
-
-1. **Simulates under H1** (alternative) — uses the design assumptions (enrollment rates, control hazard, experimental hazard, dropout) and the calculated boundaries as `criticalValues`. Run 10,000+ reps. Check:
-   - Rejection rate ≈ target power
-   - Median events at each analysis ≈ calculated events
-   - Median analysis timing ≈ calculated calendar times
-
-2. **Simulates under H0** (null) — same setup but with HR=1 (both arms have control hazard). Check:
-   - Rejection rate ≈ alpha (one-sided)
-
-Read `examples.md` → "Verification with lrsim()" for the simulation code.
-
-### Definition of Done
-
-The design is verified when ALL of the following hold:
-
-- [ ] Simulated power under H1 is within 2 percentage points of calculated power
-- [ ] Simulated type I error under H0 is within 0.5 percentage points of alpha
-- [ ] Simulated median events at each analysis are within 5% of calculated events
-- [ ] Simulated median analysis times are within 1 month of calculated times
-
-If any check fails, investigate and fix the design before delivering.
-
-**Non-binding futility (test.type=4) verification rule**: `gsDesign` computes both alpha AND power ignoring futility bounds. ALL `lrsim()` calls must match — disable futility bounds using `futilityBounds = rep(-6, k-1)` in BOTH H0 and H1 simulations. Including futility bounds gives "operational power" which does NOT match the analytical power and will cause verification to fail.
-
-**Known acceptable discrepancy**:
-- Timing estimates from `calc_expected_events()` may differ from simulation by up to ~0.5 months due to continuous vs discrete enrollment modeling. This is within the ±1 month tolerance.
-
-### Verification Log
-
-For every new design, save a verification log to the design's output subfolder as `gsd_verification_log.md`. The log should contain:
-
-```markdown
-# GSD Verification Log
-**Design**: [endpoint, e.g., PFS co-primary]
-**Date**: [YYYY-MM-DD]
-**Script**: [path to verification R script]
-**Simulations**: [number of reps, e.g., 10,000]
-
-## Results
-
-| Metric | Calculated | Simulated | Criterion | Pass? |
-|--------|-----------|-----------|-----------|-------|
-| Events at IA1 | xxx | xxx | ±5% | Y/N |
-| Events at IA2 | xxx | xxx | ±5% | Y/N |
-| Events at FA | xxx | xxx | ±5% | Y/N |
-| Timing IA1 (mo) | xxx | xxx | ±1 mo | Y/N |
-| Timing IA2 (mo) | xxx | xxx | ±1 mo | Y/N |
-| Timing FA (mo) | xxx | xxx | ±1 mo | Y/N |
-| Power (H1) | xxx% | xxx% | ±2 pp | Y/N |
-| Type I error (H0) | xxx% | xxx% | ±0.5 pp | Y/N |
-
-## Overall: PASS / FAIL
-```
-
-For co-primary endpoints, include a separate results table for each endpoint. Append to the log file if multiple endpoints are verified in the same design.
+**Non-binding futility**: use `futilityBounds = rep(-6, k-1)` in BOTH H0 and H1 `lrsim()` calls. See `examples.md` → "Verification with lrsim()" for the code.

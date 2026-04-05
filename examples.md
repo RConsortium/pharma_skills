@@ -1001,6 +1001,158 @@ find_event_time <- function(target_events, lambdaC, hr, eta, gamma_vec, R_vec, r
 
 ---
 
+## Transition Matrix Validation
+
+Validates that the transition matrix does not route alpha from any hypothesis back to a hypothesis that must already be rejected for it to be testable (Rule 3). **Must be called in every step-down design script** immediately after defining the transition matrix, before computing any boundaries.
+
+```r
+# Validate transition matrix against gating constraints (Rule 3)
+# gate_prereqs: named list — for each hypothesis, which hypotheses must be
+#               rejected before it can be tested.
+#   Example: list(H1 = c(), H2 = c(), H3 = c("H2","H4"), H4 = c("H2"))
+# tm: transition matrix (rows=from, cols=to), with dimnames
+#
+# Stops with an error if any violation is found.
+
+validate_transition_matrix <- function(tm, gate_prereqs) {
+  hyp_names <- rownames(tm)
+  if (is.null(hyp_names)) hyp_names <- colnames(tm)
+  if (is.null(hyp_names)) stop("Transition matrix must have row/column names")
+
+  violations <- character(0)
+  for (i in seq_along(hyp_names)) {
+    from <- hyp_names[i]
+    prereqs <- gate_prereqs[[from]]
+    if (length(prereqs) == 0) next
+
+    for (j in seq_along(hyp_names)) {
+      to <- hyp_names[j]
+      if (tm[i, j] > 0 && to %in% prereqs) {
+        violations <- c(violations,
+          sprintf("  %s -> %s (weight=%.3f): %s must already be rejected for %s to be testable",
+                  from, to, tm[i, j], to, from))
+      }
+    }
+  }
+
+  if (length(violations) > 0) {
+    stop(paste0("Transition matrix Rule 3 violations:\n",
+                paste(violations, collapse = "\n"),
+                "\n\nFix: route this alpha to an eligible recipient instead."))
+  }
+  cat("Transition matrix validation: PASS (no Rule 3 violations)\n")
+}
+```
+
+**Example usage** (step-down, 2 populations, PFS+OS):
+```r
+# Gating chain: H2->H4->H3; H1 tested initially
+gate_prereqs <- list(
+  H1 = c(),            # tested initially, no gates
+  H2 = c(),            # tested initially, no gates
+  H3 = c("H2", "H4"), # requires both H2 and H4 rejected
+  H4 = c("H2")         # requires H2 rejected
+)
+
+tm <- matrix(c(
+  0,   1.0, 0,   0,
+  0.001, 0, 0,   0.999,
+  1.0, 0,   0,   0,      # H3 -> H1 (only eligible recipient)
+  0.5, 0,   0.5, 0
+), nrow = 4, byrow = TRUE)
+rownames(tm) <- colnames(tm) <- c("H1","H2","H3","H4")
+
+validate_transition_matrix(tm, gate_prereqs)  # PASS
+```
+
+**Example catching a violation:**
+```r
+# WRONG: H3 -> H4 = 1.0 (H4 must be rejected for H3 to be testable)
+tm_bad <- tm
+tm_bad[3, ] <- c(0, 0, 0, 1.0)  # H3 -> H4
+validate_transition_matrix(tm_bad, gate_prereqs)
+# Error: Transition matrix Rule 3 violations:
+#   H3 -> H4 (weight=1.000): H4 must already be rejected for H3 to be testable
+```
+
+**When to skip:** Alpha-split designs have no gating — all hypotheses are testable from the start, so `gate_prereqs` would be empty for all hypotheses and validation always passes. You can skip calling this function for alpha-split designs.
+
+---
+
+## Estimate Minimum N from Required Events
+
+Estimates the minimum total sample size needed to achieve the required events for each hypothesis, accounting for prevalence and dropout. Used in Phase A of the N-first algorithm.
+
+```r
+# Estimate minimum total N to achieve required events
+# Returns N_min and the bottleneck hypothesis
+#
+# Arguments:
+#   hypotheses - list of lists, each with: events, lambdaC, hr, eta, prevalence, name
+#   ratio      - randomization ratio (experimental:control)
+#   median_followup - rough estimate of median follow-up (months), e.g., study_duration/2
+#
+# The event probability per patient uses the average of control and experimental hazards,
+# adjusted for competing risk (dropout). This is a rough estimate — the actual N may
+# differ because event accrual depends on the enrollment schedule and analysis timing.
+
+estimate_min_N <- function(hypotheses, ratio, median_followup) {
+  results <- data.frame(name = character(), events = numeric(),
+                        event_prob = numeric(), prevalence = numeric(),
+                        N_min = numeric(), stringsAsFactors = FALSE)
+
+  for (h in hypotheses) {
+    lambda_C <- h$lambdaC
+    lambda_E <- lambda_C * h$hr
+    eta <- h$eta
+
+    # Average hazard across arms (weighted by allocation)
+    avg_lambda <- (lambda_C / (1 + ratio) + lambda_E * ratio / (1 + ratio))
+
+    # Event probability per patient with competing risk
+    avg_haz <- avg_lambda + eta
+    cr_adj <- avg_lambda / avg_haz  # competing risk adjustment
+    event_prob <- cr_adj * (1 - exp(-avg_haz * median_followup))
+
+    # Minimum N for this hypothesis
+    N_min_h <- ceiling(h$events / event_prob / h$prevalence)
+
+    results <- rbind(results, data.frame(
+      name = h$name, events = h$events,
+      event_prob = round(event_prob, 3),
+      prevalence = h$prevalence,
+      N_min = N_min_h, stringsAsFactors = FALSE
+    ))
+  }
+
+  bottleneck <- results$name[which.max(results$N_min)]
+  list(N_min = max(results$N_min), bottleneck = bottleneck, details = results)
+}
+```
+
+**Example usage** (2L SCLC, co-primary PFS+OS, ES subgroup + ITT):
+```r
+hypotheses <- list(
+  list(name = "H1:PFS-ES", events = 321,
+       lambdaC = log(2)/4, hr = 0.65, eta = -log(1-0.05)/12, prevalence = 0.70),
+  list(name = "H2:OS-ES", events = 324,
+       lambdaC = log(2)/8, hr = 0.69, eta = -log(1-0.02)/12, prevalence = 0.70),
+  list(name = "H3:PFS-ITT", events = 263,
+       lambdaC = log(2)/5, hr = 0.67, eta = -log(1-0.05)/12, prevalence = 1.0),
+  list(name = "H4:OS-ITT", events = 390,
+       lambdaC = log(2)/10, hr = 0.72, eta = -log(1-0.02)/12, prevalence = 1.0)
+)
+
+est <- estimate_min_N(hypotheses, ratio = 1, median_followup = 15)
+cat(sprintf("N_min = %d (bottleneck: %s)\n", est$N_min, est$bottleneck))
+print(est$details)
+# Then pick starting N from user's feasibility range, close to N_min
+```
+
+**When to use**: At the start of the design (Phase A), before writing the design script. The estimate is rough — actual N may differ because event accrual depends on the enrollment schedule and analysis timing. The purpose is to get a reasonable starting point so the design iteration (Phase B → C) converges quickly.
+
+---
+
 ## Single-Look (k=1) Boundary Computation
 
 `gsDesign(k=1)` and `gsSurv(k=1)` both fail — use this helper for any endpoint with a single analysis.
@@ -1216,6 +1368,8 @@ When one endpoint is tested at only one analysis (k=1). `gsDesign(k=1)` fails �
 
 When one endpoint is tested at only one analysis (e.g., PFS at IA only) and the other has a standard GSD (e.g., OS at IA + FA). The single-look endpoint is a fixed-sample design — `gsDesign(k=1)` will fail, so boundaries must be computed manually.
 
+Uses the **N-first algorithm** — N is determined first, then all design calculations use the fixed enrollment.
+
 ```r
 library(gsDesign)
 
@@ -1225,65 +1379,94 @@ hr_pfs <- 0.69; hr_os <- 0.74
 eta_pfs <- -log(1 - 0.05) / 12
 eta_os  <- -log(1 - 0.02) / 12
 alpha_pfs <- 0.002; alpha_os <- 0.023
-gamma <- c(5, 20); R_init <- c(3, 100); ratio <- 1
+gamma <- c(5, 20); ratio <- 1
+min_followup <- 3
 
-# Define calc_expected_events(), find_event_time(), compute_single_look_boundary() here
+# Define calc_expected_events(), find_event_time(), compute_single_look_boundary(),
+# estimate_min_N() here
 
-# --- Step 1: OS baseline via nSurv() ---
-# nSurv() works for k=1 (unlike gsSurv which fails)
-n_os_base <- nSurv(
-  lambdaC = log(2) / ctrl_median_os, hr = hr_os, hr0 = 1, eta = eta_os,
-  gamma = gamma, R = R_init, T = NULL, minfup = 12, ratio = ratio,
-  alpha = alpha_os, beta = 0.10, sided = 1
+# --- Phase A: Determine starting N ---
+# Step A1: Required events via Schoenfeld
+schoenfeld_events <- function(alpha, power, hr) {
+  ceiling(4 * (qnorm(1-alpha) + qnorm(power))^2 / log(hr)^2)
+}
+events_pfs <- schoenfeld_events(alpha_pfs, 0.90, hr_pfs)
+events_os  <- schoenfeld_events(alpha_os, 0.90, hr_os)
+
+# Step A2: Estimate N_min
+est <- estimate_min_N(
+  list(
+    list(name="PFS", events=events_pfs, lambdaC=log(2)/ctrl_median_pfs,
+         hr=hr_pfs, eta=eta_pfs, prevalence=1.0),
+    list(name="OS", events=events_os, lambdaC=log(2)/ctrl_median_os,
+         hr=hr_os, eta=eta_os, prevalence=1.0)
+  ), ratio=1, median_followup=15
 )
+cat(sprintf("N_min = %d (bottleneck: %s)\n", est$N_min, est$bottleneck))
 
-# --- Step 2: IA timing (PFS-triggered, at enrollment end + data prep buffer) ---
-data_prep_months <- 3
-enroll_dur <- sum(n_os_base$R)
-ia_target_time <- enroll_dur + data_prep_months
+# Step A3: Pick starting N from feasibility range, derive R
+# User said feasibility: 600-800. N_min ≈ 650. Start with N close to N_min.
+target_N <- 660  # close to N_min, within range
+K <- ceiling((target_N - gamma[1]*3) / gamma[2])  # last period duration
+R_fixed <- c(3, K)
+total_N <- sum(gamma * R_fixed)
+enroll_dur <- sum(R_fixed)
+cat(sprintf("Starting N = %d, enrollment = %d months\n", total_N, enroll_dur))
+
+# --- Phase B: Design at fixed N ---
+# Step B1: Find IA time (PFS-triggered)
+pfs_events_target <- events_pfs  # from Schoenfeld
+ia_time <- find_event_time(
+  pfs_events_target, log(2)/ctrl_median_pfs, hr_pfs, eta_pfs, gamma, R_fixed, ratio
+)
+ia_time <- max(ia_time, enroll_dur + min_followup)  # min follow-up constraint
 
 pfs_events_ia <- ceiling(calc_expected_events(
-  T_cal = ia_target_time, lambdaC = log(2) / ctrl_median_pfs, hr = hr_pfs,
-  eta = eta_pfs, gamma_vec = n_os_base$gamma, R_vec = n_os_base$R, ratio_val = ratio
+  T_cal = ia_time, lambdaC = log(2) / ctrl_median_pfs, hr = hr_pfs,
+  eta = eta_pfs, gamma_vec = gamma, R_vec = R_fixed, ratio_val = ratio
 ))
 
-# --- Step 3: OS events at IA → derive OS IF ---
+# Step B2: OS events at IA → derive OS IF
 os_events_ia <- ceiling(calc_expected_events(
-  T_cal = ia_target_time, lambdaC = log(2) / ctrl_median_os, hr = hr_os,
-  eta = eta_os, gamma_vec = n_os_base$gamma, R_vec = n_os_base$R, ratio_val = ratio
+  T_cal = ia_time, lambdaC = log(2) / ctrl_median_os, hr = hr_os,
+  eta = eta_os, gamma_vec = gamma, R_vec = R_fixed, ratio_val = ratio
 ))
-os_if_ia <- os_events_ia / ceiling(n_os_base$n)
 
-# --- Step 4: Design OS with 2 looks (IA + FA) ---
+# Step B3: Design OS with 2 looks (IA + FA) using FIXED enrollment
+# gsSurv() here is ONLY for boundary computation — minfup=NULL, T=NULL
+os_if_ia <- os_events_ia / events_os  # rough IF estimate
 x_os <- gsSurv(
-  k = 2, test.type = 4, alpha = alpha_os, beta = 0.10,
-  timing = os_if_ia, sfu = sfLDOF, sfl = sfHSD, sflpar = -20,
+  k = 2, test.type = 1, alpha = alpha_os, beta = 0.10,
+  timing = os_if_ia, sfu = sfLDOF,
   lambdaC = log(2) / ctrl_median_os, hr = hr_os, hr0 = 1, eta = eta_os,
-  gamma = gamma, R = R_init, T = NULL, minfup = 12, ratio = ratio
+  gamma = gamma, R = R_fixed, T = NULL, minfup = NULL, ratio = ratio
 )
 
-# --- Step 5: PFS boundary (single look, manual computation) ---
-# Recompute PFS events from final OS timeline
-enroll_dur_final <- sum(x_os$R)
-pfs_events_final <- ceiling(calc_expected_events(
-  T_cal = enroll_dur_final + data_prep_months,
-  lambdaC = log(2) / ctrl_median_pfs, hr = hr_pfs, eta = eta_pfs,
-  gamma_vec = x_os$gamma, R_vec = x_os$R, ratio_val = ratio
-))
+# Step B4: Find FA time and recompute events
+os_events_fa <- ceiling(x_os$n.I[2])
+fa_time <- find_event_time(
+  os_events_fa, log(2)/ctrl_median_os, hr_os, eta_os, gamma, R_fixed, ratio
+)
+fa_time <- max(fa_time, ia_time + 5)  # min gap constraint
 
-# gsDesign(k=1) FAILS -- use manual computation
-b_pfs <- compute_single_look_boundary(pfs_events_final, alpha_pfs, hr_pfs)
+# Step B5: PFS boundary (single look, manual computation)
+# PFS events at IA are already computed above
+b_pfs <- compute_single_look_boundary(pfs_events_ia, alpha_pfs, hr_pfs)
 cat(sprintf("PFS: %d events, Z=%.3f, HR boundary=%.3f, power=%.1f%%\n",
     b_pfs$events, b_pfs$z, b_pfs$hr, b_pfs$power * 100))
+
+# --- Phase C: Evaluate ---
+# Check: power targets met? FA timing acceptable? OS IF reasonable?
+# If not, adjust N and re-run Phase B.
 ```
 
 **Key differences from Pattern 6:**
 - PFS has k=1 (single look) — no `gsDesign()` or `gsSurv()` call for PFS boundaries
 - Use `compute_single_look_boundary()` instead of `gsDesign()`
-- Use `nSurv()` (not `gsSurv(k=1)`) for the fixed-sample baseline
+- **N-first**: N is determined in Phase A via `estimate_min_N()` — no arbitrary `minfup` in `gsSurv()`
+- `gsSurv()` uses fixed R with `minfup=NULL, T=NULL` — only for boundaries, not enrollment sizing
 - No `gsBoundSummary()` call for PFS — format the single-row boundary table manually
-- PFS power is derived from the OS-driven study size and timeline
-- Includes data preparation buffer in IA timing
+- PFS power is derived from the fixed-N timeline
 
 ---
 

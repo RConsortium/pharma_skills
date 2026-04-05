@@ -323,6 +323,18 @@ Rationale:
 - **Epsilon to PFS-ITT (H2):** Prioritizes locking in both co-primary endpoints in ITT first (OS-ITT already positive, so boosting PFS-ITT claims full ITT success).
 Do not assume one over the other — present both rationales and let the user decide.
 
+### Transition Matrix Validation (mandatory for step-down designs)
+
+The R design script **must** call `validate_transition_matrix()` immediately after defining the transition matrix. This function programmatically checks Rule 3 — it catches any transition that routes alpha back to a hypothesis that must already be rejected. See `examples.md` → "Transition Matrix Validation" for the implementation.
+
+The function takes two inputs:
+1. The transition matrix (rows = from, cols = to)
+2. A named list of gate prerequisites for each hypothesis — which hypotheses must be rejected for it to be testable
+
+If any violation is found, the script must **stop with an error**, not just warn. This prevents the mistake from propagating into boundaries, the JSON, or the report.
+
+**When to skip:** Alpha-split designs have no gating, so all transitions are valid. Only enforce for step-down designs.
+
 ### Event Derivation from Prevalence
 
 For nested populations, subgroup events are a fraction of overall events based on prevalence:
@@ -411,6 +423,7 @@ Use flat numbering (1, 2, 3...) for sections. Use unnumbered subsection headings
    - **Enrollment duration**: Is enrollment a bottleneck? Would faster enrollment shift milestones meaningfully?
    - **Alpha reallocation impact**: How much does the cascade benefit the secondary endpoint?
    - **Do NOT suggest "later IA to improve OS IF"** when the IA is triggered by a different endpoint (e.g., PFS). The OS IF at the IA is a derived quantity — moving a PFS-triggered IA later doesn't meaningfully improve OS analysis, it just delays the PFS readout. This suggestion only makes sense when the IA is OS-triggered and the OS IF at that IA is a design choice.
+   - **Do NOT report internal algorithmic artifacts as limitations.** Values like `estimate_min_N` (the rough N heuristic from Phase A) are intermediate computational steps, not design properties. If the final verified design meets all power targets, the fact that a rough estimate exceeded the feasibility cap is irrelevant — it just means the estimate was conservative. Only flag genuine weaknesses of the final, verified design (borderline power, long study duration, stringent IA boundaries, etc.).
    - **IA-before-enrollment**: Already flagged in the IA timing check, but note it here too if it applies
    - **Efficacy boundary stringency at IA**: Use these thresholds to characterize IA boundaries:
      - HR at boundary < 0.70 OR cumulative IA power < 50% → **stringent** (hard to cross, requires strong early signal)
@@ -480,6 +493,8 @@ The R script saves all design results to `gsd_results.json`. Key fields the Pyth
 - PFS boundaries: `pfs_z_upper`, `pfs_p_upper`, `pfs_hr_upper`, `pfs_info_frac`, `pfs_N`, `pfs_cum_cross_h1`, `pfs_cum_cross_h0`, `pfs_power`, `pfs_power_full`
 - OS boundaries: `os_z_upper`, `os_z_lower`, `os_p_upper`, `os_hr_upper`, `os_hr_lower`, `os_info_frac`, `os_N`, `os_cum_cross_h1`, `os_cum_cross_h0`, `os_power`, `os_power_full`
 
+**JSON R-to-Python gotcha: named vectors become arrays.** R's `toJSON()` converts named vectors (e.g., `c(H1=0, H2=1, H3=0, H4=0)`) to JSON arrays `[0, 1, 0, 0]`, losing the names. In the Python report script, access these by position index (e.g., `tm['H1'][1]` for the H2 weight), not by name (e.g., `tm['H1']['H2']` will fail). Similarly, `fromJSON()` in R converts JSON lists-of-objects to data frames — access with `$column[row]` (e.g., `res$populations$prevalence[1]`), not `[[1]]$prevalence`. Always test JSON round-trip access patterns before building the report script.
+
 ---
 
 ## IA Timing Constraints
@@ -527,6 +542,21 @@ These are two distinct concepts — do not conflate them in the design report or
 
 **When a constraint other than the triggering endpoint's IF is binding:**
 The actual event count at the analysis will exceed what the IF target alone would require. Report this clearly — e.g., "IA is triggered by 609 PFS events. This exceeds the 80% IF target (559 events) because the minimum follow-up constraint is binding."
+
+---
+
+## Handling Over-Powered Hypotheses
+
+When a hypothesis has power substantially above the target (e.g., >95% vs 90% target), there are two options:
+
+- **A) Increase assigned alpha** — More alpha → fewer events needed for the same power target. The extra alpha must come from another hypothesis. Best when the hypothesis is close to the power target and you need a modest reduction in events. Trade-off: the donor hypothesis gets less alpha.
+
+- **B) Reduce target events (accept derived power)** — Don't target 90% power for this hypothesis. Let the analysis timing be driven by other hypotheses, and accept whatever power results from the available events. Best when the hypothesis has large excess power (e.g., 96%+) and the event count is driven by a shared timeline.
+
+The choice depends on how much excess power exists:
+- **Close to 90% (e.g., 91–93%)**: Option A is safer
+- **Well above 90% (e.g., 95%+)**: Option B is cleaner
+- **Both can be combined**: increase alpha modestly AND accept derived power
 
 ---
 
@@ -597,6 +627,51 @@ When the OS IF at the IA is very high (>85%), it means the IA and FA provide nea
 This is counterintuitive because one might expect more patients to generate proportionally more events at both analyses, leaving the IF unchanged. The key insight is that the IA is triggered by a **fixed PFS event count**, not a fraction. With more patients, that count is reached earlier, before OS has matured as much.
 
 **When this occurs, run an N sensitivity analysis** exploring N values centered around the user's stated feasibility range (not from the computed minimum). Present a table showing how OS IF, IA timing, FA timing, and study duration change with N so the user can make an informed choice.
+
+**Short-survival amplification**: In aggressive diseases (median OS 8–10 months), the effect is even more dramatic because most OS events occur in the first wave of enrolled patients. Example from 2L SCLC: +17% patients (520→610) cut FA by 27% (47.8→35.0 months). Always flag N-increase as the primary lever when FA timing is a concern in short-survival diseases — the user may accept slightly exceeding their feasibility limit when the timing improvement is large.
+
+### N-First Design Algorithm
+
+**N is a top-level design parameter.** All design results (IA timing, FA timing, events, power) depend on N. The algorithm has three phases.
+
+**Why not let `gsSurv()` determine N?** `gsSurv()` requires an arbitrary `minfup` or `T` to anchor the enrollment solution. Different values give different N, silently baking in a sample size that may not match the user's intent. The N-first approach avoids this by making N an explicit choice.
+
+**Phase A — Determine starting N:**
+
+1. Compute required events per hypothesis via Schoenfeld formula: `events = 4 × (z_α + z_β)² / log(HR)²`
+2. Estimate minimum N for each hypothesis:
+   ```
+   # Average event probability per patient at a given median follow-up
+   avg_lambda <- (lambdaC + lambdaC * hr) / 2
+   avg_event_prob <- avg_lambda / (avg_lambda + eta) * (1 - exp(-(avg_lambda + eta) * median_followup))
+   N_min_h <- events_h / avg_event_prob / prevalence_h
+   N_min <- max(N_min_h across hypotheses)  # bottleneck hypothesis
+   ```
+   Use `median_followup ≈ study_duration / 2` as a rough estimate (refine later). See `examples.md` → `estimate_min_N()` for the helper function.
+3. Pick starting N from user's feasibility range (Q13b), close to N_min. If N_min falls outside the range, flag it.
+4. Derive R from enrollment ramp: given rates `gamma = c(g1, g2, g3)` and period durations `R = c(d1, d2, K)`, solve `K = ceiling((N - g1*d1 - g2*d2) / g3)`. Actual N = sum(gamma × R).
+
+**Phase B — Design at fixed N:**
+
+All calculations use the fixed R/N. Use `gsSurv()` ONLY for boundary computation (with fixed R, `minfup=NULL, T=NULL`), NOT for enrollment sizing.
+
+1. Find IA time (event-driven, e.g., PFS-triggered)
+2. Compute all endpoint events at IA via `calc_expected_events()`
+3. Derive OS IF at IA
+4. Design OS boundaries: `gsSurv(gamma_sub, R_fixed, minfup=NULL, T=NULL)` — this computes required OS events and boundaries, using the fixed enrollment
+5. Find FA time when OS reaches required events
+6. Recompute all cross-endpoint events at final IA and FA times
+7. Compute all boundaries
+
+**Phase C — Evaluate and adjust N:**
+
+After Phase B, check requirements:
+- Power ≥ target for all lead hypotheses?
+- FA timing acceptable?
+- OS IF at IA reasonable (<85%)?
+- N within user's feasibility range?
+
+If any requirement fails, present N adjustment as an option alongside other levers (alpha reallocation, relaxed power target, faster enrollment). When running an N sensitivity analysis, iterate over K (last enrollment period duration) to produce achievable N values consistent with the enrollment ramp. Re-run Phase B with the new N.
 
 ### Beta spending futility and sample size (test.type=3 vs test.type=4)
 **Binding futility (test.type=3):** Beta spending inflates the required events because the design accounts for trials that stop early for futility under H1, losing power. The more aggressive the futility (less negative `sflpar`), the larger the inflation:
