@@ -2,6 +2,9 @@
 
 A Claude Code skill for designing group sequential clinical trials for survival endpoints (OS, PFS, DFS) with interim analyses, spending functions, multiplicity, and event/enrollment prediction.
 
+## Video Demo
+https://drive.google.com/file/d/1O9-SCJEoXGJv6J3YXuZZ1eiVB4Jk6Gao/view?usp=drive_link
+
 ## What It Does
 
 - Collects design inputs through a structured Q&A
