@@ -608,6 +608,13 @@ For 14+ hypotheses, place labels at 30% or 70% along arrows instead of 50% midpo
 ### gsSurv() vs gsDesign(): when to use which
 `gsSurv()` computes events/sample size from survival assumptions. `gsDesign()` with `n.I` when events are already known.
 
+### Schoenfeld vs nSurv with piecewise control hazards
+When the control hazard is piecewise (e.g., `lambdaC = c(log(2)/4, log(2)/8), S = 3`) but the HR is constant (PH design), `nSurv()` can massively overestimate required events — e.g., 782 vs Schoenfeld's 477 for alpha=0.001, HR=0.67. The Lachin-Foulkes formula inside `nSurv()` interacts poorly with piecewise hazard specifications, producing inflated event counts.
+
+**Why Schoenfeld is valid here:** With constant HR, the proportion of events from each arm is `1/(1+HR)` — invariant to the baseline hazard level. So the information per event is the same regardless of whether the control hazard is high (early period) or low (later period). The Schoenfeld approximation of D/4 variance per event holds.
+
+**Fix:** For piecewise control hazard with constant HR, use the Schoenfeld formula `events = 4 × (z_α + z_β)² / log(HR)²` for required events. Verify with simulation. Reserve nSurv/Lachin-Foulkes for scenarios where the HR or allocation ratio varies over time.
+
 ### Do NOT use nSurv()/gsSurv() to size multi-population designs
 `nSurv()` solves for enrollment duration to achieve target power, but it couples enrollment and events in ways that can oversize the design — especially for subpopulations where the effective enrollment rate is `prevalence × gamma`. The Lachin-Foulkes formula inside `nSurv()` may return substantially more events than the Schoenfeld approximation (e.g., 422 vs 324) depending on the follow-up/median ratio. **Fix**: For multi-population designs, compute required events analytically using the Schoenfeld formula `events = 4 × (z_α + z_β)² / log(HR)²`, then size enrollment to support those events. Use `gsDesign()` with pre-specified events for boundary computation.
 
@@ -815,6 +822,25 @@ When a user specifies non-proportional hazards (piecewise control hazard and/or 
    - Average HR at each analysis (the effective HR the log-rank test sees)
    - Power at each analysis using the PH boundaries
 
+### What is AHR (Average Hazard Ratio)?
+
+The AHR is the **effective HR that the log-rank test statistic reflects at a given analysis time** under non-proportional hazards. It is a weighted geometric mean of the piecewise HRs:
+
+```
+AHR(t) = exp( sum[ log(HR_j) × d_j(t) ] / D(t) )
+       = product( HR_j ^ (d_j(t) / D(t)) )
+```
+
+where `HR_j` is the hazard ratio in period j, `d_j(t)` is the expected events in period j by calendar time t, and `D(t)` is total expected events. Periods with more events get more weight.
+
+The AHR connects NPH assumptions to standard power formulas: `E[Z] ≈ -log(AHR) × sqrt(D/4)`. This means you can plug the AHR into Schoenfeld or `gs_power_npe()` as if it were a constant HR.
+
+**Key properties:**
+- Under PH (constant HR), AHR = HR at all times
+- Under delayed effect (HR=1 early, HR<1 later), AHR starts near 1 and decreases over time
+- High early control hazard amplifies the weight of the HR=1 period, pulling AHR toward 1
+- Computed in R via `gsDesign2::ahr(total_duration=t)` or `gsDesign2::expected_time(target_event=D)`
+
 ### Why this approach works
 
 The key insight: **boundaries and event counts from the PH design remain valid under NPH.** Alpha spending boundaries depend only on the information fraction (ratio of events at IA to events at FA) and the spending function — not on the underlying hazard model. If the trial targets 395 OS events at the IA and 478 at the FA, the same Z-boundaries and p-value thresholds apply regardless of whether events came from a constant or piecewise hazard distribution.
@@ -949,6 +975,40 @@ Verify against analyticals:
 - Simulated type I error (H0) within ±0.5 pp of alpha
 
 Include both PH and NPH results in the verification log.
+
+### Adding Looks for NPH Robustness
+
+When NPH evaluation reveals low power for an endpoint (e.g., PFS power drops from 90% to 54% due to a delayed treatment effect), **adding an additional analysis for that endpoint** can substantially improve NPH robustness. This is distinct from the traditional reason for adding interims (early stopping) — here the goal is to give the endpoint a second chance at a later timepoint where the AHR has improved.
+
+**Why it works:** Under NPH with delayed effect (HR=1 early, HR=0.65 later), the AHR improves over time as more events accumulate in the post-delay period. A second look at a later timepoint sees a better AHR and has more events, both of which increase power. With OBF-like spending, most alpha is reserved for the later look, providing a meaningful shot at rejection.
+
+**Example:** PFS tested only at IA1 (30 mo) → 54% NPH power. Add PFS testing at IA2 (40 mo, OS-triggered) → 72% NPH power (+18 pp). The second look adds ~80 PFS events and the AHR improves from 0.747 to 0.732.
+
+**When to suggest this:**
+- NPH power drops > 10 pp from PH power
+- There is a large gap between existing analyses (e.g., 20 months) that could accommodate an additional analysis
+- The endpoint's AHR trajectory shows meaningful improvement over the gap period (check via `gsDesign2::ahr()` at multiple timepoints)
+
+**Implementation:**
+1. Add the endpoint to an existing or new analysis (e.g., test PFS at the OS-triggered IA2)
+2. The endpoint now has 2+ looks and needs a spending function (sfLDOF is a good default — saves most alpha for the later look)
+3. The additional analysis's timing is driven by the triggering endpoint (e.g., OS events), not the NPH endpoint
+4. **Evaluate NPH power at each candidate timing** to ensure the second look is meaningful — PFS events at IA2 and PFS AHR at IA2 are both derived quantities that depend on the IA2 timing
+5. Check that PFS IF at IA1 relative to IA2 is not too high (>95%), which would leave very little alpha for IA2
+
+**Side benefits:**
+- Breaks up a large analysis gap (e.g., 20 months → two ~10-month segments)
+- PH power actually increases (second chance under favorable conditions too)
+- Additional decision point for the trial
+
+### Cross-Endpoint NPH Power as IA Timing Criterion
+
+When an analysis is added specifically for NPH robustness, the timing should be informed by the **NPH endpoint's power**, not just the triggering endpoint's information fraction. When presenting IA2 timing options to the user, always compute and compare the NPH endpoint's:
+- Events at each option
+- AHR at each option (via `gsDesign2::ahr()`)
+- NPH power at each option (via `gs_power_npe()`)
+
+This ensures the timing choice is driven by the actual goal (NPH robustness) rather than just even spacing of the triggering endpoint's analyses.
 
 ---
 

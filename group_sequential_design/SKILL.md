@@ -66,7 +66,11 @@ This gives the user a visual progress indicator (spinner → checkmark) througho
    **Multiplicity diagram:** The node labels must show the **actual initial alpha** (e.g., 0.005), not the fraction of total alpha. Pass the raw alpha values directly as `hypotheses` — `graphicalMCP` displays whatever values you pass. Use `hyp_names` for the hypothesis name + endpoint (e.g., `"H1\nPFS-Ext"`) and `precision = 4` in `plot()`.
 
 7. **Check IA timing vs enrollment** — Compare each interim analysis calendar time against the enrollment duration. If ANY interim analysis occurs before enrollment completes, **warn the user** and present options to fix it (see "IA Timing vs Enrollment Check" section below). Do NOT proceed until the user confirms the design or adjusts it.
-7b. **NPH Evaluation** *(only if user specified NPH in Q7b)* — With the PH design complete (events, boundaries, enrollment from steps 1–7), evaluate it under the NPH assumptions. See "NPH Evaluation Workflow" section below. Present the NPH evaluation table to the user. If power under NPH is unacceptable, discuss options (increase events, adjust alpha split, accept lower power) before proceeding.
+7b. **NPH Evaluation** *(only if user specified NPH in Q7b)* — With the PH design complete (events, boundaries, enrollment from steps 1–7), evaluate it under the NPH assumptions. See "NPH Evaluation Workflow" section below. Present the NPH evaluation table to the user. If power under NPH is unacceptable, discuss options before proceeding:
+   - **Add looks for NPH robustness**: If there is a large gap between analyses AND the endpoint's AHR improves over time, suggest adding the endpoint to an additional analysis. This gives the endpoint a second chance at a later timepoint with better AHR. See `reference.md` → "Adding Looks for NPH Robustness" for the full strategy. When evaluating timing options for the additional analysis, always compute and compare the NPH endpoint's power at each option — the timing should be driven by NPH power, not just the triggering endpoint's IF.
+   - **Alpha reallocation**: Shift alpha from an over-powered endpoint to the NPH-affected endpoint
+   - **Increase N**: More events improve AHR over time (modest effect)
+   - **Accept lower NPH power**: If NPH is a sensitivity analysis, not the primary design basis
 8. **Verify via simulation** — Run `lrstat` simulation. Save verification script and log in the subfolder. If verification FAILS, investigate and fix the design before proceeding. *(If NPH was specified, run verification under BOTH PH and NPH assumptions.)*
 9. **Generate Word report via Python** — Only after verification passes. **Before writing `gsd_report.py`, read `reference.md` → "Report Sections", "Boundary Table Format", "IA/FA Plan Table Format", and "Sample Size and Power Summary"** to get the exact section order, table columns, and content requirements. Then write the script to match that spec exactly. The report has 6 sections: (1) Design Assumptions, (2) IA/FA Analysis Plan, (3) Multiplicity Strategy, (4) Efficacy/Futility Boundaries, (5) Sample Size and Power Summary, (6) Design Assessment.
 
@@ -208,6 +212,8 @@ Collect design parameters by asking **ONE question at a time**. Wait for the use
    - D) Other — specify a ratio
 
 6. "On the standard treatment, how long do patients typically survive (or stay progression-free) before half of them have an event? This is the 'median' in months."
+
+   **Piecewise control hazards:** If the user specifies a piecewise control hazard (e.g., "log(2)/4 for the first 3 months, then log(2)/8 thereafter"), accept it. This is common when early event rates differ from later rates (e.g., high early progression risk that decreases). Store as `lambdaC = c(log(2)/4, log(2)/8)` with breakpoint `S = 3`. Use `calc_expected_events_pw()` from `examples.md` for event calculations and `gsSurv(lambdaC=..., S=...)` for boundary computation. For required events, use Schoenfeld formula (not nSurv) when the HR is constant — see `reference.md` → "Schoenfeld vs nSurv with piecewise control hazards".
 
    *(If multi-population)* Ask per population × endpoint. Offer shortcut: "If medians are the same across populations, just give one number per endpoint."
    - Control median PFS in subgroup? (e.g., 8 months)
