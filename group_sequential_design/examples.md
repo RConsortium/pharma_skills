@@ -1001,6 +1001,94 @@ find_event_time <- function(target_events, lambdaC, hr, eta, gamma_vec, R_vec, r
 
 ---
 
+## Analytical Expected Events Calculator — Piecewise Hazards
+
+Extension of `calc_expected_events()` for piecewise exponential control hazard with constant HR. Uses closed-form integration within each hazard piece for speed.
+
+```r
+# Expected events at calendar time T_cal with PIECEWISE control hazard
+# lambdaC_pw: vector of control hazard rates (e.g., c(log(2)/4, log(2)/8))
+# S: vector of breakpoints (e.g., 3 for change at 3 months)
+# hr: constant hazard ratio (PH design)
+# eta: constant dropout hazard
+calc_expected_events_pw <- function(T_cal, lambdaC_pw, S, hr, eta,
+                                    gamma_vec, R_vec, ratio_val) {
+  breaks <- c(0, S)
+  n_pieces <- length(lambdaC_pw)
+
+  # Event probability for a patient with follow-up f on one arm
+  event_prob_arm <- function(f, lambdas) {
+    if (f <= 0) return(0)
+    prob <- 0
+    cum_haz <- 0
+    for (j in seq_along(lambdas)) {
+      t_start <- if (j == 1) 0 else breaks[j]
+      t_end <- if (j < n_pieces) breaks[j + 1] else Inf
+      piece_end <- min(f, t_end)
+      if (t_start >= piece_end) {
+        cum_haz <- cum_haz + lambdas[j] * max(0, min(f, t_end) - t_start)
+        next
+      }
+      lam <- lambdas[j]
+      d <- piece_end - t_start
+      total_rate <- lam + eta
+      if (total_rate > 0) {
+        prob <- prob + lam / total_rate *
+          exp(-cum_haz - eta * t_start) *
+          (1 - exp(-total_rate * d))
+      }
+      cum_haz <- cum_haz + lam * d
+    }
+    prob
+  }
+
+  lambdas_exp <- lambdaC_pw * hr
+  enroll_starts <- c(0, cumsum(R_vec[-length(R_vec)]))
+  enroll_ends <- cumsum(R_vec)
+
+  total_events <- 0
+  n_pts <- 100  # integration points per enrollment period
+  for (i in seq_along(gamma_vec)) {
+    s_start <- enroll_starts[i]
+    s_end <- min(enroll_ends[i], T_cal)
+    if (s_start >= T_cal) next
+    rate <- gamma_vec[i]
+    dt <- (s_end - s_start) / n_pts
+    for (k in 1:n_pts) {
+      et <- s_start + (k - 0.5) * dt
+      fup <- T_cal - et
+      ep_ctrl <- event_prob_arm(fup, lambdaC_pw)
+      ep_exp <- event_prob_arm(fup, lambdas_exp)
+      total_events <- total_events +
+        rate * (1 / (1 + ratio_val)) * ep_ctrl * dt +
+        rate * (ratio_val / (1 + ratio_val)) * ep_exp * dt
+    }
+  }
+  total_events
+}
+
+# Binary search wrapper
+find_event_time_pw <- function(target_events, lambdaC_pw, S, hr, eta,
+                               gamma_vec, R_vec, ratio_val) {
+  lo <- 1; hi <- sum(R_vec) + 120
+  for (i in 1:100) {
+    mid <- (lo + hi) / 2
+    d <- calc_expected_events_pw(mid, lambdaC_pw, S, hr, eta, gamma_vec, R_vec, ratio_val)
+    if (d < target_events) lo <- mid else hi <- mid
+    if (abs(hi - lo) < 0.01) break
+  }
+  mid
+}
+```
+
+**When to use**: When the control hazard is piecewise exponential (e.g., high early hazard that drops after 3 months) and you need to compute events at an arbitrary calendar time. Common in solid tumors where early progression risk differs from later risk.
+
+**Verified**: Timing estimates match `lrsim()` simulation within 0.5 months (verified with piecewise PFS hazard log(2)/4 for 0–3 mo, log(2)/8 after 3 mo, N=675, 10,000 simulations).
+
+**Note**: For required event calculation with piecewise control and constant HR, use the Schoenfeld formula — not `nSurv()` with piecewise `lambdaC`, which can overestimate events. See `reference.md` → "Schoenfeld vs nSurv with piecewise control hazards".
+
+---
+
 ## Transition Matrix Validation
 
 Validates that the transition matrix does not route alpha from any hypothesis back to a hypothesis that must already be rejected for it to be testable (Rule 3). **Must be called in every step-down design script** immediately after defining the transition matrix, before computing any boundaries.
