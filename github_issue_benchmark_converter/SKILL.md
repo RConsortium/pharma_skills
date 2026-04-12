@@ -40,10 +40,11 @@ A skill to automatically extract benchmark data from a GitHub Issue and format i
    }
    ```
 
-4. **Output or Save the JSON**:
-   Provide the formatted JSON locally. If the user asked you to update their local `evals.json` file, safely append or insert the eval block. Otherwise, return the JSON clearly in the chat.
-
-### Best Practices & Rules
-- Do NOT hallucinate assertions. Extract exactly what is documented under the Rubric section.
-- If an assertion is vague (e.g., "it should look good"), proactively prompt the user to redefine it into an objectively measurable piece of criteria before outputting the final JSON.
+4. **Save the JSON to the Target Skill's Eval Folder**:
+   Do NOT simply output the JSON into the chat. You must save it directly into the target skill's benchmark directory.
+   - Identify the `skill_name` that was extracted.
+   - Target the directory: `./[skill_name]/evals/`. Create the `evals/` folder if it does not already exist.
+   - If an `evals.json` file already exists inside this folder, securely append the new eval object into the existing `"evals": []` array. Ensure the JSON syntax remains valid after appending.
+   - If `evals.json` does not exist, create a new file and write the full JSON payload.
+   - Once saved, inform the user that the evaluation case was successfully added to `<skill_name>/evals/evals.json`.
 - If files are mentioned by name but no path is given, extract just the filenames. If a URL to a file is given, include the URL.

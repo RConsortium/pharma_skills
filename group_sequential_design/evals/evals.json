@@ -1,0 +1,29 @@
+{
+  "skill_name": "group_sequential_design",
+  "evals": [
+    {
+      "id": "github-issue-2",
+      "prompt": "Following SAP from NCT05638204, reproduce number using group sequential design.",
+      "expected_output": "An R script running a group sequential design analysis that perfectly reproduces the exact clinical trial numbers specified in the attached SAP document.",
+      "files": [
+        "https://cdn.clinicaltrials.gov/large-docs/04/NCT05638204/SAP_000.pdf"
+      ],
+      "assertions": [
+        "The script must use the gsDesign R package.",
+        "The script must accurately reproduce the trial design parameters and numbers documented in the SAP."
+      ]
+    },
+    {
+      "id": "github-issue-3",
+      "prompt": "following SAP https://cdn.clinicaltrials.gov/large-docs/22/NCT01471522/SAP_003.pdf reproduce number using gsDesign",
+      "expected_output": "An R script that executes a group sequential design analysis mirroring the methodology in the attached SAP, outputting the reproduced clinical trial design numbers.",
+      "files": [
+        "https://cdn.clinicaltrials.gov/large-docs/22/NCT01471522/SAP_003.pdf"
+      ],
+      "assertions": [
+        "The script must use the gsDesign R package.",
+        "The output must accurately reproduce the exact trial numbers calculated in the SAP methodology."
+      ]
+    }
+  ]
+}
