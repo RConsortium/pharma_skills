@@ -29,6 +29,11 @@ Contributions of new skills are welcome. Each skill should:
 4. Include an MIT `LICENSE`
 5. Follow the [Agent Skill Development Lifecycle](LIFECYCLE.md)
 
+## Community
+
+Join our ongoing discussions, seek help, or propose new AI skills in our dedicated Slack channel:
+- **[RConsortium Pharma Skills Slack](https://app.slack.com/client/TUMBMR083/C0AR7L8GR5Z)**
+
 ## License
 
 All skills in this repository are required to be licensed under the MIT License to ensure maximum permissiveness and rapid adoption within pharmaceutical research.
