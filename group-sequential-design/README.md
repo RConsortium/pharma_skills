@@ -68,12 +68,12 @@ output/gsd_{disease}_{endpoints}_{YYYYMMDD}/
 
 ## Installation
 
-1. Copy the `group_sequential_design/` folder into your project's `.claude/skills/` directory:
+1. Copy the `group-sequential-design/` folder into your project's `.claude/skills/` directory:
    ```
    your-project/
    └── .claude/
        └── skills/
-           └── group_sequential_design/
+           └── group-sequential-design/
                ├── SKILL.md
                ├── reference.md
                ├── examples.md
@@ -104,7 +104,7 @@ output/gsd_{disease}_{endpoints}_{YYYYMMDD}/
 
 Invoke the skill in Claude Code by either:
 
-- Typing `/group_sequential_design`
+- Typing `/group-sequential-design`
 - Describing a trial design task naturally, e.g.:
 
 > "Design a Phase 3 trial for first-line metastatic NSCLC with co-primary PFS and OS, 1:1 randomization, target HR 0.70 for OS"
