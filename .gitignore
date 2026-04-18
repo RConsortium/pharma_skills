@@ -1,4 +1,7 @@
 references/
+__pycache__/
+*.pyc
+*.pyo
 
 # Local AI rule definitions (user-specific, not committed at project level)
 AGENTS.md
