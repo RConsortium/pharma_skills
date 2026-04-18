@@ -10,10 +10,11 @@ This skill automates the generation of a developer-focused weekly summary for th
 ## Steps
 
 1. **Research Recent Activity**
-   - Use `web_fetch` to retrieve recent activity from the following URLs:
-     - `https://github.com/RConsortium/pharma_skills/commits/main` (fallback to `/master` if `main` fails)
-     - `https://github.com/RConsortium/pharma_skills/issues`
-     - `https://github.com/RConsortium/pharma_skills/pulls`
+   - Run the following command to retrieve structured data for the last 7 days:
+     ```bash
+     python3 _automation/weekly-summary/scripts/get_weekly_data.py
+     ```
+   - Use the JSON output to identify the number of commits, open/closed issues, and merged/open PRs.
 
 2. **Generate Summary**
    - Write a developer-focused summary under 150 words in Slack mrkdwn format.
