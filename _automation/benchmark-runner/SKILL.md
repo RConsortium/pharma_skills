@@ -113,70 +113,56 @@ Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using thi
 | **{Key Metric 1}** | {value_A1} | {value_B1} |
 | **{Key Metric 2}** | {value_A2} | {value_B2} |
 
-### Assertion Breakdown
+### Key Observations
+
+- {2-4 bullet points comparing both agents}
+
+### Verdict
+
+{1-2 sentence overall verdict}
+
+---
+
+## Technical Details & Artifacts
 
 <details>
-<summary>View Line-by-Line Results</summary>
+<summary>View Assertion Breakdown, Code Artifacts, and Logs</summary>
+
+### Assertion Breakdown
 
 | Assertion | With Skill | Without Skill |
 |---|---|---|
 | {assertion_text_1} | {Pass/Partial/Fail} | {Pass/Partial/Fail} |
 | {assertion_text_2} | {Pass/Partial/Fail} | {Pass/Partial/Fail} |
 
-</details>
-
 ### Detailed Artifacts
 
-<details>
-<summary>Artifacts: Agent A (With Skill)</summary>
-
-#### `{file_name_1}`
+#### Agent A (With Skill)
+{Repeat for key files like .R, .py, .json}
+**{file_name}**
 ```{language}
-{file_content_1}
+{file_content}
 ```
 
-#### `{file_name_2}`
+#### Agent B (Without Skill)
+**{file_name}**
 ```{language}
-{file_content_2}
+{file_content}
 ```
-</details>
-
-<details>
-<summary>Artifacts: Agent B (Without Skill)</summary>
-
-#### `{file_name_1}`
-```{language}
-{file_content_1}
-```
-</details>
-
-### Key Observations
-
-- {2-4 bullet points comparing both agents}
 
 ### Debugging Information
 
-<details>
-<summary>Agent A (With Skill) Execution Details</summary>
-
+#### Agent A (With Skill)
 - **Total Tool Calls:** {count}
 - **Tool Success Rate:** {rate}%
 - **Errors/Retries:** {any errors or "None"}
-- **Environment Note:** {e.g. R unavailable, specific library missing}
-</details>
 
-<details>
-<summary>Agent B (Without Skill) Execution Details</summary>
-
+#### Agent B (Without Skill)
 - **Total Tool Calls:** {count}
 - **Tool Success Rate:** {rate}%
 - **Errors/Retries:** {any errors or "None"}
-- **Environment Note:** {same or different}
+
 </details>
-
-### Verdict
-
-{1-2 sentence overall verdict}
 
 ---
 *Posted automatically by `benchmark-runner` · Repo: https://github.com/RConsortium/pharma_skills*
