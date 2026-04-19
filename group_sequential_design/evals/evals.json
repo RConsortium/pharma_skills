@@ -1,0 +1,24 @@
+{
+  "skill_name": "group_sequential_design",
+  "evals": [
+    {
+      "id": "github-issue-21",
+      "prompt": "I'm designing a Phase 3 trial in first-line metastatic NSCLC. Single population, all-comers. Primary endpoint is overall survival (OS). 1:1 randomization. Control arm median OS is 14 months, and we're powering for a hazard ratio of 0.70. Start with one interim analysis at 70% of events using Lan-DeMets O'Brien-Fleming spending. We also want a non-binding futility boundary using HSD gamma=-4. Target power is 90%, one-sided alpha 0.025. Enrollment ramp: 5 patients/month for 3 months, then 15/month for 3 months, then 30/month steady state. Annual dropout is 5%. Minimum follow-up after last patient in is 6 months, minimum gap between analyses is 6 months. We need to stay under 450 patients total. Please optimize the design: find the smallest feasible sample size, and also evaluate whether the gap between the IA and FA is reasonable \u2014 if the gap is too long (e.g., more than 18 months), suggest adding a second interim and show the revised timing.\"",
+      "expected_output": "All outputs in output/gsd_1l_mnsclc_os_/: gsd_design.R using gsSurv() with N <= 450, gsd_results.json with boundary values and event counts, multiplicity_diagram.png generated via graphicalMCP, gsd_verification.R + gsd_verification_log.md confirming power within 88-92% and type I error within 0.024-0.026, gsd_report.py driven purely from gsd_results.json, and gsd_report.docx.\"",
+      "files": [
+        "none"
+      ],
+      "assertions": [
+        "gsd_design.R exists and calls gsSurv(),",
+        "gsd_results.json exists and contains total_N < 450, OR if N exceeds 450 the skill explicitly flags the constraint conflict and explains why (e.g., gap constraint required larger N)",
+        "multiplicity_diagram.png exists",
+        "gsd_verification_log.md reports simulated power within \u00b12pp of 90%",
+        "gsd_verification_log.md reports type I error within \u00b10.5pp of 0.025",
+        "gsd_report.docx exists",
+        "gsd_report.py reads all values from gsd_results.json with no hardcoded numbers",
+        "IA/FA gap is evaluated and a second IA is suggested if gap > 18 months",
+        "In the recommended design, the first IA occurs within 18 months from the end of enrollment"
+      ]
+    }
+  ]
+}
