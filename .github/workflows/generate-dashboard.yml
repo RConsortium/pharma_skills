@@ -1,0 +1,31 @@
+name: Generate Benchmark Dashboard
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '_automation/benchmark-runner/runs/runs.json'
+  workflow_dispatch:
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Generate dashboard
+        run: |
+          python3 _automation/benchmark-runner/scripts/generate_dashboard.py
+
+      - name: Commit updated dashboard
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: regenerate benchmark dashboard [skip ci]"
+          file_pattern: "_automation/benchmark-runner/DASHBOARD.md"

@@ -1,70 +1,84 @@
 import json
 import subprocess
+import sys
 from datetime import datetime, timedelta
-import os
+from pathlib import Path
 
-def run_command(command):
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
+
+
+def load_config() -> dict:
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    return {}
+
+
+def run_command(command: str) -> str:
+    """Run a shell command and return stdout. Exit with error on failure (fix 1.1)."""
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            command, shell=True, capture_output=True, text=True, check=True,
+        )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        print(f"Error running command {command}: {e.stderr}", flush=True)
-        return ""
+        print(f"Error: command failed: {command}\n{e.stderr}", file=sys.stderr)
+        sys.exit(1)
 
-def get_weekly_data():
-    # Commits (last 7 days)
-    commits_raw = run_command('git log --since="7 days ago" --oneline')
-    commits_list = [line for line in commits_raw.split('\n') if line]
-    commit_count = len(commits_list)
-    commit_highlights = commits_list[:5] # Limit to top 5 highlights to save tokens
 
-    # Issues (updated in last 7 days)
-    # Using gh search to get all issues updated in the last 7 days
-    issues_json = run_command('gh issue list --repo RConsortium/pharma_skills --state all --search "updated:>=$(date -v-7d +%Y-%m-%d)" --json number,title,state,updatedAt')
+def get_weekly_data() -> dict:
+    config = load_config()
+    lookback_days: int = config.get("lookback_days", 7)  # fix 2.5 — read from config
+    since_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+    # Commits
+    commits_raw = run_command(f'git log --since="{lookback_days} days ago" --oneline')
+    commits_list = [line for line in commits_raw.split("\n") if line]
+
+    # Issues updated in the lookback window
+    issues_json = run_command(
+        f'gh issue list --repo RConsortium/pharma_skills --state all '
+        f'--search "updated:>={since_date}" --json number,title,state,updatedAt --limit 1000'
+    )
     issues_list = json.loads(issues_json) if issues_json else []
-    
-    issues_opened = [i for i in issues_list if i['state'] == 'OPEN' and i['updatedAt'] >= datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')]
-    # Simpler filtering for summary purposes
-    issues_summary = []
-    for i in issues_list:
-        issues_summary.append({
-            "number": i['number'],
-            "title": i['title'],
-            "state": i['state']
-        })
+    issues_summary = [
+        {"number": i["number"], "title": i["title"], "state": i["state"]}
+        for i in issues_list
+    ]
 
-    # PRs (updated in last 7 days)
-    prs_json = run_command('gh pr list --repo RConsortium/pharma_skills --state all --search "updated:>=$(date -v-7d +%Y-%m-%d)" --json number,title,state,updatedAt,mergedAt')
+    # PRs updated in the lookback window
+    prs_json = run_command(
+        f'gh pr list --repo RConsortium/pharma_skills --state all '
+        f'--search "updated:>={since_date}" --json number,title,state,updatedAt,mergedAt --limit 1000'
+    )
     prs_list = json.loads(prs_json) if prs_json else []
-    
-    prs_summary = []
-    for pr in prs_list:
-        prs_summary.append({
-            "number": pr['number'],
-            "title": pr['title'],
-            "state": pr['state'],
-            "merged": bool(pr.get('mergedAt'))
-        })
+    prs_summary = [
+        {
+            "number": pr["number"],
+            "title": pr["title"],
+            "state": pr["state"],
+            "merged": bool(pr.get("mergedAt")),
+        }
+        for pr in prs_list
+    ]
 
-    # Final structure
-    result = {
-        "week_starting": (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'),
-        "week_ending": datetime.now().strftime('%Y-%m-%d'),
+    return {
+        "week_starting": since_date,
+        "week_ending": datetime.now().strftime("%Y-%m-%d"),
         "commits": {
-            "total_count": commit_count,
-            "highlights": commit_highlights
+            "total_count": len(commits_list),
+            "highlights": commits_list[:5],
         },
         "issues": {
             "total_updated": len(issues_summary),
-            "list": issues_summary
+            "list": issues_summary,
         },
         "pull_requests": {
             "total_updated": len(prs_summary),
-            "list": prs_summary
-        }
+            "list": prs_summary,
+        },
     }
-    
-    return result
+
 
 if __name__ == "__main__":
     data = get_weekly_data()

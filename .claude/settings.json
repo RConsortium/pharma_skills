@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git log:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue comment:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh gist create:*)",
+      "Bash(python3 _automation/*:*)",
+      "Bash(Rscript:*)",
+      "Bash(zip:*)",
+      "Bash(uvx:*)"
+    ],
+    "deny": [
+      "Bash(git reset --hard:*)",
+      "Bash(gh repo delete:*)",
+      "Bash(rm -rf:*)"
+    ]
+  }
+}

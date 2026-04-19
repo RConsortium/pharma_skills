@@ -4,113 +4,183 @@ import argparse
 import sys
 import os
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 
-def get_git_sha(skill_dir):
+# Derive repo root from this file's location — no CWD dependency (fix 1.4)
+REPO_ROOT = Path(__file__).resolve().parents[3]
+BUNDLE_SIZE_LIMIT_BYTES = 100 * 1024  # 100 KB (fix 2.3)
+RUNS_DIR = REPO_ROOT / "_automation" / "benchmark-runner" / "runs"
+
+
+def normalize_model_name(name: str) -> str:
+    """Lowercase + strip all punctuation/spaces for robust deduplication (fix 1.3)."""
+    return re.sub(r"[\s\-_\.]", "", name.lower())
+
+
+def get_git_sha(skill_path: Path) -> str:
+    """Composite SHA over the entire skill directory, not just SKILL.md (fix 3.3)."""
     try:
-        # Get the SHA of the SKILL.md file in the skill directory
-        skill_md_path = os.path.join(skill_dir, "SKILL.md")
         result = subprocess.run(
-            ["git", "log", "-n", "1", "--format=%H", "--", skill_md_path],
-            capture_output=True, text=True, check=True
+            ["git", "log", "-n", "1", "--format=%H", "--", str(skill_path)],
+            capture_output=True, text=True, check=True, cwd=str(REPO_ROOT),
         )
-        return result.stdout.strip()
-    except Exception as e:
-        print(f"Error getting SHA for {skill_dir}: {e}", file=sys.stderr)
-        return "unknown"
+        sha = result.stdout.strip()
+        return sha if sha else "unknown"
+    except subprocess.CalledProcessError as e:
+        print(f"Error: git log failed for {skill_path}: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
 
-def check_github_comments(issue_id, target_sha, target_model):
+
+def check_github_comments(issue_id: str, target_sha: str, target_model: str) -> bool:
+    """Return True if a matching benchmark comment already exists (fix 1.1 + 1.3)."""
+    match = re.search(r"(\d+)$", issue_id)
+    if not match:
+        return False
+    issue_number = match.group(1)
+
     try:
-        # Parse issue number from github-issue-N
-        match = re.search(r'(\d+)$', issue_id)
-        if not match:
-            return False
-        issue_number = match.group(1)
-
-        # We assume gh is authenticated. If not, this script should fail gracefully.
         result = subprocess.run(
-            ["gh", "issue", "view", issue_number, "--json", "comments"],
-            capture_output=True, text=True, check=True
+            [
+                "gh", "issue", "view", issue_number,
+                "--repo", "RConsortium/pharma_skills",
+                "--json", "comments",
+            ],
+            capture_output=True, text=True, check=True,
         )
-        data = json.loads(result.stdout)
-        
-        for comment in data.get("comments", []):
-            body = comment.get("body", "")
-            if "Automated Benchmark Results" in body:
-                # Check for exact matches of SHA and Model in the markdown table/metadata
-                has_sha = f"Skill version: `{target_sha}`" in body or f"**Skill version** | `{target_sha}`" in body
-                has_model = f"**Model** | `{target_model}`" in body or f"**Model** | {target_model}" in body
-                
-                if has_sha and has_model:
-                    return True
-        return False
-    except Exception as e:
-        # If gh fails or issue doesn't exist, we treat it as "needs benchmark"
-        print(f"Warning: Could not check comments for issue {issue_id}: {e}", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        # A transient gh failure means we cannot confirm — warn loudly but do not
+        # silently skip: return False so the benchmark still runs rather than being
+        # dropped entirely. The run manifest will record it for audit.
+        print(
+            f"Warning: gh failed checking comments for issue {issue_id} — "
+            f"treating as pending (may cause a duplicate if transient): {e.stderr}",
+            file=sys.stderr,
+        )
         return False
 
-def main():
+    data = json.loads(result.stdout)
+    norm_target = normalize_model_name(target_model)
+
+    for comment in data.get("comments", []):
+        body = comment.get("body", "")
+        if "Automated Benchmark Results" not in body:
+            continue
+        has_sha = (
+            f"Skill version: `{target_sha}`" in body
+            or f"**Skill version** | `{target_sha}`" in body
+        )
+        # Normalize the entire comment body so variant spellings still match (fix 1.3)
+        has_model = norm_target in normalize_model_name(body)
+        if has_sha and has_model:
+            return True
+    return False
+
+
+def write_run_manifest(eval_case: dict, model: str, skill_sha: str, status: str) -> None:
+    """Append a structured run record for audit and local deduplication (fix 2.2)."""
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    record = {
+        "eval_id": eval_case.get("id"),
+        "skill_name": eval_case.get("_skill_name"),
+        "skill_sha": skill_sha,
+        "model": model,
+        "run_date": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+    }
+    manifest_path = RUNS_DIR / "runs.json"
+    records = []
+    if manifest_path.exists():
+        try:
+            with open(manifest_path) as f:
+                records = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            records = []
+    records.append(record)
+    with open(manifest_path, "w") as f:
+        json.dump(records, f, indent=2)
+
+
+def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True, help="The name of the model currently being used")
+    parser.add_argument(
+        "--model", required=True,
+        help="Model API ID being used (e.g. claude-sonnet-4-6). "
+             "Use the canonical API identifier, not the display name, "
+             "to keep deduplication consistent.",
+    )
     args = parser.parse_args()
 
-    # Discover skills (folders with SKILL.md and evals/evals.json)
-    skills = []
-    for item in os.listdir("."):
-        if os.path.isdir(item) and not item.startswith(".") and not item.startswith("_"):
-            skill_md = os.path.join(item, "SKILL.md")
-            evals_json = os.path.join(item, "evals", "evals.json")
-            if os.path.exists(skill_md) and os.path.exists(evals_json):
-                skills.append(item)
-    
-    # Process skills in alphabetical order
-    skills.sort()
+    # Discover skills relative to REPO_ROOT — no CWD assumption (fix 1.4)
+    skills: list[Path] = []
+    for item in REPO_ROOT.iterdir():
+        if not item.is_dir() or item.name.startswith(".") or item.name.startswith("_"):
+            continue
+        if (item / "SKILL.md").exists() and (item / "evals" / "evals.json").exists():
+            skills.append(item)
 
-    for skill_dir in skills:
-        evals_path = os.path.join(skill_dir, "evals", "evals.json")
+    skills.sort(key=lambda p: p.name)
+
+    for skill_path in skills:
+        evals_path = skill_path / "evals" / "evals.json"
         try:
-            with open(evals_path, 'r') as f:
+            with open(evals_path) as f:
                 eval_data = json.load(f)
-            
-            skill_name = eval_data.get("skill_name", skill_dir)
-            skill_sha = get_git_sha(skill_dir)
-            
-            # Iterate through evals in file order
-            for eval_case in eval_data.get("evals", []):
-                eval_id = eval_case.get("id")
-                
-                # Check if this eval case is already completed for this SHA and Model
-                if not check_github_comments(eval_id, skill_sha, args.model):
-                    # Found the first pending eval case
-                    # Enrich with skill metadata
-                    eval_case["_skill_name"] = skill_name
-                    eval_case["_skill_sha"] = skill_sha
-                    eval_case["_skill_dir"] = skill_dir
-                    
-                    # Pre-read the main skill content
-                    with open(os.path.join(skill_dir, "SKILL.md"), "r") as s:
-                        eval_case["_skill_content"] = s.read()
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Error reading {evals_path}: {e}", file=sys.stderr)
+            continue
 
-                    # Bundle supporting resources (all other .md and .py files in the skill dir)
-                    # This avoids the agent having to fetch references/examples separately.
-                    bundled = {}
-                    for root, _, files in os.walk(skill_dir):
-                        for f in files:
-                            if (f.endswith(".md") or f.endswith(".py")) and f != "evals.json":
-                                rel_path = os.path.relpath(os.path.join(root, f), skill_dir)
-                                try:
-                                    with open(os.path.join(root, f), "r") as res_file:
-                                        bundled[rel_path] = res_file.read()
-                                except:
-                                    pass
-                    eval_case["_bundled_resources"] = bundled
-                    
-                    print(json.dumps(eval_case, indent=2))
-                    return
+        skill_name = eval_data.get("skill_name", skill_path.name)
+        skill_sha = get_git_sha(skill_path)
 
-        except Exception as e:
-            print(f"Error processing {evals_path}: {e}", file=sys.stderr)
+        for eval_case in eval_data.get("evals", []):
+            eval_id = eval_case.get("id")
+
+            if not check_github_comments(eval_id, skill_sha, args.model):
+                eval_case["_skill_name"] = skill_name
+                eval_case["_skill_sha"] = skill_sha
+                eval_case["_skill_dir"] = str(skill_path.relative_to(REPO_ROOT))
+
+                with open(skill_path / "SKILL.md") as s:
+                    eval_case["_skill_content"] = s.read()
+
+                # Bundle .md and .py files — exclude evals/ to avoid leaking rubric
+                # to Agent A, and warn if total exceeds 100 KB (fixes 2.3)
+                bundled: dict[str, str] = {}
+                total_bytes = 0
+                size_warned = False
+                for root, dirs, files in os.walk(skill_path):
+                    root_path = Path(root)
+                    if root_path.name == "evals":
+                        dirs.clear()
+                        continue
+                    for fname in sorted(files):
+                        if not (fname.endswith(".md") or fname.endswith(".py")):
+                            continue
+                        fpath = root_path / fname
+                        rel = str(fpath.relative_to(skill_path))
+                        try:
+                            content = fpath.read_text()
+                        except OSError:
+                            continue
+                        total_bytes += len(content.encode())
+                        if total_bytes > BUNDLE_SIZE_LIMIT_BYTES and not size_warned:
+                            print(
+                                f"Warning: bundle for '{skill_name}' exceeds "
+                                f"{BUNDLE_SIZE_LIMIT_BYTES // 1024} KB — consider "
+                                "a _bundle_manifest.json to control included files.",
+                                file=sys.stderr,
+                            )
+                            size_warned = True
+                        bundled[rel] = content
+                eval_case["_bundled_resources"] = bundled
+
+                write_run_manifest(eval_case, args.model, skill_sha, "dispatched")
+                print(json.dumps(eval_case, indent=2))
+                return
 
     print("STATUS: UP_TO_DATE")
+
 
 if __name__ == "__main__":
     main()

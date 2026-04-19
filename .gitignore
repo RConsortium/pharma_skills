@@ -1,10 +1,16 @@
 references/
+__pycache__/
+*.pyc
+*.pyo
 
-# Local AI rule definitions
+# Local AI rule definitions (user-specific, not committed at project level)
 AGENTS.md
 .cursorrules
 .windsurfrules
 .github/copilot-instructions.md
 llms.txt
-CLAUDE.md
+
+# Benchmark run manifest — local only to avoid merge conflicts
+_automation/benchmark-runner/runs/runs.json
+
 group-sequential-design/evals/.DS_Store

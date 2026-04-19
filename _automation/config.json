@@ -1,0 +1,15 @@
+{
+  "skills": [
+    {
+      "name": "group-sequential-design",
+      "dir": "group-sequential-design",
+      "priority": "high",
+      "benchmark_schedule": "on_change",
+      "description": "Design group sequential clinical trials for survival endpoints"
+    }
+  ],
+  "defaults": {
+    "benchmark_schedule": "weekly",
+    "repo": "RConsortium/pharma_skills"
+  }
+}

@@ -81,7 +81,7 @@ Capture the resulting URL for inclusion in the report.
 
 ---
 
-## Step 5 — Format the benchmark report
+## Step 5 — Format the benchmark report (write the Markdown file)
 
 Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using this template:
 
@@ -152,7 +152,7 @@ Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using thi
 
 ---
 
-## Step 5 — Post to the linked GitHub issue
+## Step 6 — Post to the linked GitHub issue
 
 Extract the issue number from the `id` (e.g., `"github-issue-21"` -> **#21**).
 
@@ -166,20 +166,26 @@ gh issue comment {issue_number} --repo RConsortium/pharma_skills --body-file /tm
 ## Execution Flow
 
 ```
-Run get_next_eval.py (Detects SHA, Model, and File Order)
+Run get_next_eval.py (Detects composite skill SHA, model, and file order)
   |-- If STATUS: UP_TO_DATE -> Exit
-  |-- If JSON -> 
+  |-- If JSON ->
        |-- Agent A (with skill) ---+
        |-- Agent B (without skill)-+--- run in parallel
-       |-- Score both against assertions
-       |-- Archive and Upload detailed outputs
-       |-- Format Markdown report
-       |-- Post comment to GitHub issue #{N}
+       |-- Score both against assertions       (Step 3)
+       |-- Archive and upload detailed outputs (Step 4)
+       |-- Format Markdown report              (Step 5)
+       |-- Post comment to GitHub issue #{N}   (Step 6)
 ```
+
+## Notes on Model Name
+
+Pass `--model` using the canonical API model ID (e.g., `claude-sonnet-4-6`), not the
+display name (e.g., `Claude Sonnet 4.6`). The deduplication logic normalises both sides,
+but using the API ID avoids any ambiguity across runs.
 
 ## Success Criteria
 
 - Only one high-priority evaluation is processed per run
-- Deduplication correctly accounts for both Skill SHA and Model Name
-- LLM token usage is minimized by offloading discovery to a script
+- Deduplication correctly accounts for both Skill SHA and Model Name (normalised)
+- LLM token usage is minimised by offloading discovery to a script
 - Results are posted as comments on the correct GitHub issues

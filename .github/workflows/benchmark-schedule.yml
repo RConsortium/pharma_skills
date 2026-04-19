@@ -1,0 +1,61 @@
+name: Scheduled Benchmarks
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  push:
+    branches: [ main ]
+    paths:
+      - '**/SKILL.md'
+      - '**/evals/evals.json'
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model API ID to benchmark against'
+        required: false
+        default: 'claude-sonnet-4-6'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    # Only run in the upstream repo, not in forks (avoids leaking secrets)
+    if: github.repository == 'RConsortium/pharma_skills'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for composite SHA computation
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Check for pending benchmark
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MODEL="${{ github.event.inputs.model || 'claude-sonnet-4-6' }}"
+          OUTPUT=$(python3 _automation/benchmark-runner/scripts/get_next_eval.py --model "$MODEL")
+          if [ "$OUTPUT" = "STATUS: UP_TO_DATE" ]; then
+            echo "status=up_to_date" >> "$GITHUB_OUTPUT"
+            echo "All benchmarks are current. Nothing to run."
+          else
+            echo "status=pending" >> "$GITHUB_OUTPUT"
+            echo "Found pending benchmark."
+          fi
+
+      - name: Run benchmark via Claude Code
+        if: steps.check.outputs.status == 'pending'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MODEL="${{ github.event.inputs.model || 'claude-sonnet-4-6' }}"
+          # Invoke benchmark-runner skill via Claude Code CLI
+          # The skill handles sub-agent spawning, scoring, and GitHub posting
+          claude --skill _automation/benchmark-runner/SKILL.md \
+                 --message "Run benchmarks using model $MODEL" \
+                 --no-interactive

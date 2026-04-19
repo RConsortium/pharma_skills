@@ -20,12 +20,26 @@ jobs:
       - name: Validate skills
         run: |
           set -e
-          # Loop through all top-level directories
-          for dir in */; do
-            if [ -f "${dir}SKILL.md" ]; then
-              echo "====================================="
-              echo "✅ Validating ${dir}..."
-              echo "====================================="
-              uvx --from skills-ref agentskills validate "${dir}"
-            fi
+          # Find all directories containing a SKILL.md file, excluding hidden directories
+          find . -name "SKILL.md" -not -path "*/.*" | while read skill_file; do
+            dir=$(dirname "$skill_file")
+            echo "====================================="
+            echo "✅ Validating ${dir}..."
+            echo "====================================="
+            uvx --from skills-ref agentskills validate "${dir}"
           done
+
+  test-automation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Run automation unit tests
+        run: |
+          uv run --with pytest pytest _automation/tests/ -v
