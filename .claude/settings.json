@@ -13,12 +13,29 @@
       "Bash(Rscript:*)",
       "Bash(R:*)",
       "Bash(zip:*)",
-      "Bash(uvx:*)"
+      "Bash(uvx:*)",
+      "WebFetch(domain:cran.r-project.org)",
+      "WebFetch(domain:cloud.r-project.org)",
+      "WebFetch(domain:packagemanager.posit.co)",
+      "WebFetch(domain:bioconductor.org)"
     ],
     "deny": [
       "Bash(git reset --hard:*)",
       "Bash(gh repo delete:*)",
       "Bash(rm -rf:*)"
     ]
+  },
+  "sandbox": {
+    "network": {
+      "allowedDomains": [
+        "cran.r-project.org",
+        "*.r-project.org",
+        "cloud.r-project.org",
+        "packagemanager.posit.co",
+        "*.posit.co",
+        "bioconductor.org",
+        "*.bioconductor.org"
+      ]
+    }
   }
 }
