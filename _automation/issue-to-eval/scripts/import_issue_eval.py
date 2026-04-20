@@ -41,7 +41,7 @@ def parse_issue_markdown(body: str) -> dict:
         content = match.group(1).strip() if match else ""
 
         if key == "skill":
-            data["skill_name"] = clean_value(content).lower().replace(" ", "-")
+            data["skill_name"] = clean_value(content).lower().replace(" ", "-").replace("_", "-")
         elif key == "files":
             data["files"] = [clean_value(f) for f in content.split("\n") if clean_value(f)]
         elif key == "assertions":
