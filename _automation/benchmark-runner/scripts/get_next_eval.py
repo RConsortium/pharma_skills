@@ -109,6 +109,8 @@ def main() -> None:
              "Use the canonical API identifier, not the display name, "
              "to keep deduplication consistent.",
     )
+    parser.add_argument("--priority-skill", help="Focus selection on this specific skill folder.")
+    parser.add_argument("--priority-issue", help="Prioritize this specific issue ID (e.g. github-issue-27).")
     args = parser.parse_args()
 
     # Discover skills relative to REPO_ROOT — no CWD assumption (fix 1.4)
@@ -119,7 +121,15 @@ def main() -> None:
         if (item / "SKILL.md").exists() and (item / "evals" / "evals.json").exists():
             skills.append(item)
 
-    skills.sort(key=lambda p: p.name)
+    # Prioritize selected skill if provided
+    if args.priority_skill:
+        skills.sort(key=lambda p: (0 if p.name == args.priority_skill else 1, p.name))
+    else:
+        skills.sort(key=lambda p: p.name)
+
+    # Collect all eligible evaluations across all skills
+    today_last_digit = int(str(datetime.now(timezone.utc).day)[-1])
+    eligible_evals: list[dict] = []
 
     for skill_path in skills:
         evals_path = skill_path / "evals" / "evals.json"
@@ -133,7 +143,12 @@ def main() -> None:
         skill_name = eval_data.get("skill_name", skill_path.name)
         skill_sha = get_git_sha(skill_path)
 
-        for eval_case in eval_data.get("evals", []):
+        # Prioritize selected issue if provided; otherwise reverse to pick newest first
+        eval_cases = eval_data.get("evals", [])
+        if args.priority_issue:
+            eval_cases.sort(key=lambda e: (0 if e.get("id") == args.priority_issue else 1))
+        
+        for eval_case in eval_cases:
             eval_id = eval_case.get("id")
 
             if not check_github_comments(eval_id, skill_sha, args.model):
@@ -174,10 +189,33 @@ def main() -> None:
                             size_warned = True
                         bundled[rel] = content
                 eval_case["_bundled_resources"] = bundled
+                eligible_evals.append(eval_case)
 
-                write_run_manifest(eval_case, args.model, skill_sha, "dispatched")
-                print(json.dumps(eval_case, indent=2))
-                return
+                # If we prioritized a specific issue and found it, we can stop collecting
+                if args.priority_issue and eval_id == args.priority_issue:
+                    break
+
+    if not eligible_evals:
+        print("STATUS: UP_TO_DATE")
+        return
+
+    def get_issue_num(eval_id: str) -> int:
+        match = re.search(r"(\d+)$", eval_id)
+        return int(match.group(1)) if match else 0
+
+    # Apply the selection logic:
+    # 1. Distance between issue last digit and today's day last digit
+    # 2. Tie-breaker: smallest issue number
+    selected_eval = min(
+        eligible_evals,
+        key=lambda e: (
+            abs((get_issue_num(e["id"]) % 10) - today_last_digit),
+            get_issue_num(e["id"])
+        )
+    )
+
+    write_run_manifest(selected_eval, args.model, selected_eval["_skill_sha"], "dispatched")
+    print(json.dumps(selected_eval, indent=2))
 
     print("STATUS: UP_TO_DATE")
 
