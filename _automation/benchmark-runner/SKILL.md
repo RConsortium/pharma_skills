@@ -11,27 +11,40 @@ Repository: `RConsortium/pharma-skills` (https://github.com/RConsortium/pharma-s
 
 ---
 
-## Cloud Environment Setup
+## Step 0 — R Environment Pre-flight (mandatory, run before Step 1)
 
-If running in a cloud or CI/CD environment (like Gemini CLI, Claude Code, or GitHub Actions), ensure the following setup is performed once per session to enable CRAN access and R package installation:
+**Always run this script first, even if you believe R is already installed.**
+It is idempotent — safe to re-run — and will exit non-zero if setup fails,
+at which point you must stop and report the error rather than continuing.
 
-1. **Network Access**: Verify the environment is configured with `Network access: Full` or `Custom` (allowing `*.r-project.org`).
-2. **Install R**: If `R` is not available, run the following setup command (requires root/sudo):
-   ```bash
-   sudo apt update && sudo apt install -y r-base
-   ```
-3. **Fast Package Installation**: Always use the **Posit Public Package Manager** for pre-compiled Linux binaries to significantly reduce installation time:
-   ```r
-   options(repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"))
-   install.packages("gsDesign") # Example
-   ```
+```bash
+bash _automation/benchmark-runner/scripts/setup_r_env.sh
+```
 
-## Note on R-based Automation
+The script handles everything in one shot:
 
-When using R instead of Python for automation:
-- Transient scripts (e.g., `get_next_eval.R`, `record_run_result.R`) should be generated into `/tmp/` rather than the `_automation/` folder to prevent workspace pollution.
-- Always check for the presence of required R packages (`jsonlite`, `digest`) before proceeding.
-- Follow the same isolated A/B execution logic described below.
+1. **Installs R** (`r-base`) via `apt` if `R` is not on `PATH`.
+2. **Configures Posit Public Package Manager** for pre-compiled Linux binaries
+   (dramatically faster than building from source).
+3. **Installs and verifies all required R packages:**
+
+   | Package | Purpose |
+   |---|---|
+   | `jsonlite` | JSON parse/emit in R-based dispatcher helpers |
+   | `digest` | SHA hashing used by deduplication logic |
+   | `gsDesign` | Group sequential boundaries and sample size |
+   | `gsDesign2` | Non-proportional hazards evaluation |
+   | `lrstat` | Log-rank simulation for design verification |
+   | `graphicalMCP` | Maurer-Bretz graphical multiplicity testing |
+   | `eventPred` | Event prediction under non-proportional hazards |
+   | `ggplot2` | Visualisation used in skill outputs |
+
+If the script exits with a non-zero status, **stop here and report the error**.
+Do not proceed to Step 1.
+
+> **Note on R-based automation:** Transient R scripts (e.g. `get_next_eval.R`,
+> `record_run_result.R`) should be written to `/tmp/` rather than `_automation/`
+> to prevent workspace pollution.
 
 ---
 
