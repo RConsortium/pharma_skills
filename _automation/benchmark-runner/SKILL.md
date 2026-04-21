@@ -26,6 +26,13 @@ If running in a cloud or CI/CD environment (like Gemini CLI, Claude Code, or Git
    install.packages("gsDesign") # Example
    ```
 
+## Note on R-based Automation
+
+When using R instead of Python for automation:
+- Transient scripts (e.g., `get_next_eval.R`, `record_run_result.R`) should be generated into `/tmp/` rather than the `_automation/` folder to prevent workspace pollution.
+- Always check for the presence of required R packages (`jsonlite`, `digest`) before proceeding.
+- Follow the same isolated A/B execution logic described below.
+
 ---
 
 ## Step 1 — Get the Next Evaluation Case

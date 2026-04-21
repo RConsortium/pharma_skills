@@ -22,6 +22,7 @@
     "\"Minimum follow-up constraint is met: the IA occurs at least 6 months after enrollment ends, OR the violation is explicitly flagged in gsd_results.json or the skill log\",",
     "\"Minimum gap constraint is met: the IA-FA gap is at least 6 months, OR the violation is explicitly flagged in gsd_results.json or the skill log\""
   ],
+  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]

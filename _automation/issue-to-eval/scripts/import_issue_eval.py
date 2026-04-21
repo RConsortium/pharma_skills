@@ -79,6 +79,15 @@ def parse_issue_markdown(body: str) -> dict:
         else:
             data[key] = clean_value(content)
 
+    # Heuristic fallback for language if not explicitly provided in the header
+    if not data.get("language"):
+        combined_text = (data.get("expected_output", "") + " " + " ".join(data.get("assertions", []))).lower()
+        if ".r" in combined_text or " r " in combined_text or " rscript" in combined_text or "gsdesign" in combined_text:
+            data["language"] = "R"
+        elif ".py" in combined_text or "python" in combined_text:
+            data["language"] = "Python"
+
+    for key in sections.keys():
         # Warn on empty results so silent parse failures surface immediately (fix 1.5)
         result_value = data.get("skill_name" if key == "skill" else key, "")
         is_empty = (

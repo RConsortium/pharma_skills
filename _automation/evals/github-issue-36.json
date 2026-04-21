@@ -1,0 +1,19 @@
+{
+  "id": "github-issue-36",
+  "prompt": "I'm designing a Phase 3 colorectal cancer trial, third line. We'll start by enrolling everyone, all-comers, but at the interim we want to check whether the treatment is working better in RAS wild-type patients (about 45% of our population) than in RAS mutant. If RAS WT looks much better (HR < 0.70 in WT and HR > 0.90 in mutant), we'll restrict enrollment to RAS WT only for the rest of the trial. Stage 1 is 200 patients. If we enrich, we add another 150 RAS WT patients in Stage 2. The final analysis pools both stages and tests RAS WT as the primary hypothesis and ITT as secondary. Stage 1 is fixed at 200 patients and Stage 2 at 150, these are operationally constrained by site capacity. No flexibility on total N. Target 90% power in RAS WT, two-sided alpha 0.05. Can you design this?",
+  "expected_output": "The correct output is a refusal to produce a standard `gsDesign/gsSurv()` design, combined with a clear explanation of why and what framework is actually required.\n\nA trial that begins enrolling all-comers and then restricts to a biomarker-positive subpopulation based on interim data, while pooling both stages for the final analysis, is an adaptive enrichment design. It is not a standard group sequential design. Standard `gsDesign` applies the canonical joint distribution of repeated test statistics under the assumption that all patients are drawn from the same population with the same parameter \u03b8. That assumption is violated when the enrolled population changes mid-trial. Using `gsSurv()` for this scenario produces a design with incorrect FWER guarantees (Rosenblum et al., Biostatistics 2016; FDA Adaptive Design Guidance, November 2019).\n\nThe skill's correct response must:\n1. Identify this as adaptive population enrichment with a data-dependent enrollment change\n2. State explicitly that `gsDesign` and `lrstat` do not implement the combination test framework required for this design\n3. Explain why: Stage 1 and Stage 2 patients are from different populations; the enrichment decision uses unblinded interim data; a standard pooled logrank test will not maintain FWER\n4. Describe the correct framework: inverse normal combination test with pre-specified stage weights (w\u2081 = \u221a(200/350) \u2248 0.756, w\u2082 = \u221a(150/350) \u2248 0.655), plus a multiplicity procedure for the ITT secondary\n5. Name `rpact` as an available R implementation\n6. Cite at least one regulatory reference: FDA Adaptive Design Guidance (November 2019) or ICH E20 draft guidance\n\nIf the skill produces a `gsDesig`n boundary table, required events, and claimed 90% power for this scenario without any warning, it has failed in the most consequential way, it has delivered a scientifically invalid design with false confidence.",
+  "files": [],
+  "assertions": [
+    "`gsd_design.R` does not contain a call to `gsSurv()` or `gsDesign()` that produces boundaries for this scenario without a scope warning",
+    "Output contains the phrase \"adaptive enrichment,\" \"combination test,\" or \"population change\"",
+    "Output explicitly states that standard group sequential methods do not apply and explains why",
+    "Output names `rpact` or equivalent as a correct R implementation",
+    "Output references FDA adaptive design guidance (November 2019) or ICH E20",
+    "Output provides the inverse normal combination test weights (w1 \u2248 0.756, w2 \u2248 0.655) or explains how to derive them",
+    "`gsd_results.json` does not contain a total_N or total_events field populated as if a complete standard GSD was produced without qualification"
+  ],
+  "language": "R",
+  "target_skills": [
+    "`group-sequential-design`"
+  ]
+}

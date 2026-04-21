@@ -4,6 +4,7 @@
   "expected_output": "An R script that executes a group sequential design analysis mirroring the methodology in the attached SAP,\n - Outputting the reproduced clinical trial design numbers.",
   "files": [],
   "assertions": [],
+  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]

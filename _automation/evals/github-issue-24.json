@@ -1,7 +1,7 @@
 {
   "id": "github-issue-24",
   "prompt": "I'm designing a Phase 3 trial in first-line advanced urothelial carcinoma. Single population, all-comers. Primary endpoint is overall survival (OS). 1:1 randomization. Control arm has piecewise median OS: 4 months for the first 3 months, then 8 months thereafter. Target hazard ratio under proportional hazards: 0.75. Total alpha 0.025 one-sided. Two interim analyses at information fractions of 0.8 and 0.9. Alpha spending: Lan-DeMets O'Brien-Fleming. Non-binding futility boundary using HSD gamma=-4. Target power under PH: greater than 90%. Enrollment: 5 patients/month for 3 months, then 20/month thereafter. Annual dropout 3%. Feasible sample size: not to exceed 700 patients. Minimum follow-up 3 months, minimum gap between analyses 6 months. Also evaluate this design under non-proportional hazards: delayed treatment effect with HR = 1.0 for months 0-3, then HR = 0.62 from month 3 onward (control hazard is piecewise: log(2)/4 for the first 3 months, then log(2)/8 thereafter). Target power under NPH: greater than 80% at the final analysis. Report the average hazard ratio (AHR) at each analysis timepoint, power under NPH, and whether the design is robust to the delayed effect. Run verification under both PH and NPH assumptions. All inputs are confirmed \u2014 skip the Q&A and proceed directly to computation.",
-  "expected_output": "All outputs in output/gsd_1l_uc_os_/: gsd_design.R computing PH design first with gsSurv() using piecewise control hazard (lambdaC with breakpoint S=3), then NPH evaluation using lrstat. NPH comparison table showing AHR at each analysis, PH vs NPH power. PH power > 90%, NPH power > 80% at FA. Verification runs under both PH and NPH. N not exceeding 700.",
+  "expected_output": "All outputs in output/gsd_1l_uc_os_<date>/: gsd_design.R computing PH design first with gsSurv() using piecewise control hazard (lambdaC with breakpoint S=3), then NPH evaluation using lrstat. NPH comparison table showing AHR at each analysis, PH vs NPH power. PH power > 90%, NPH power > 80% at FA. Verification runs under both PH and NPH. N not exceeding 700.",
   "files": [],
   "assertions": [
     "\"gsd_design.R exists and computes the PH design first using piecewise control hazard (lambdaC with breakpoint S=3, not a single constant hazard)\",",
@@ -19,6 +19,7 @@
     "\"Minimum follow-up constraint is met: the first analysis (IA1) occurs at least 3 months after enrollment ends, OR the violation is explicitly flagged in gsd_results.json or the skill log\",",
     "\"Minimum gap constraint is met: all consecutive analysis pairs (IA1-IA2, IA2-FA) are at least 6 months apart, OR the violations are explicitly flagged in gsd_results.json or the skill log\""
   ],
+  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]

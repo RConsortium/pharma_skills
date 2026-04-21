@@ -59,9 +59,43 @@ class TestParseIssueMarkdown(unittest.TestCase):
         self.assertEqual(parsed["language"], "R")
 
     def test_language_is_optional(self):
-        body = GOLDEN_BODY.replace("## Language (Optional)\nR\n\n", "")
+        # Body with no language signals (no .R, .py, etc)
+        body = """## Skills
+some-skill
+
+## Query
+Some query.
+
+## Expected Output
+Some output.
+
+## Rubric Criteria (Assertions)
+- some assertion
+"""
         parsed = ite.parse_issue_markdown(body)
         self.assertEqual(parsed.get("language", ""), "")
+
+    def test_language_heuristic_detects_r(self):
+        # Remove Language header but keep .R signal
+        body = GOLDEN_BODY.replace("## Language (Optional)\nR\n\n", "")
+        parsed = ite.parse_issue_markdown(body)
+        self.assertEqual(parsed.get("language"), "R")
+
+    def test_language_heuristic_detects_python(self):
+        body = """## Skills
+some-skill
+
+## Query
+Some query.
+
+## Expected Output
+A script in python.
+
+## Rubric Criteria (Assertions)
+- gsd_results.json exists
+"""
+        parsed = ite.parse_issue_markdown(body)
+        self.assertEqual(parsed.get("language"), "Python")
 
     def test_parses_prompt(self):
         parsed = ite.parse_issue_markdown(GOLDEN_BODY)
