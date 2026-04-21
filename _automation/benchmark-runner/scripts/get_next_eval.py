@@ -1,3 +1,4 @@
+import hashlib
 import json
 import subprocess
 import argparse
@@ -18,18 +19,33 @@ def normalize_model_name(name: str) -> str:
     return re.sub(r"[\s\-_\.]", "", name.lower())
 
 
-def get_git_sha(skill_path: Path) -> str:
-    """Composite SHA over the entire skill directory, not just SKILL.md (fix 3.3)."""
-    try:
-        result = subprocess.run(
-            ["git", "log", "-n", "1", "--format=%H", "--", str(skill_path)],
-            capture_output=True, text=True, check=True, cwd=str(REPO_ROOT),
-        )
-        sha = result.stdout.strip()
-        return sha if sha else "unknown"
-    except subprocess.CalledProcessError as e:
-        print(f"Error: git log failed for {skill_path}: {e.stderr}", file=sys.stderr)
-        sys.exit(1)
+def get_skill_content_sha(skill_path: Path) -> str:
+    """SHA256 over the actual content of bundled skill files (.md, .py), excluding evals/.
+
+    Using content rather than git-commit SHA avoids false "new version" signals when
+    surrounding commits (e.g. moving eval files out of the skill directory) touch the
+    path without changing any skill file.  The hash is stable as long as the files
+    the agents actually receive are unchanged.
+    """
+    h = hashlib.sha256()
+    for root, dirs, files in os.walk(skill_path):
+        root_path = Path(root)
+        if root_path.name == "evals":
+            dirs.clear()
+            continue
+        dirs.sort()
+        for fname in sorted(files):
+            if not (fname.endswith(".md") or fname.endswith(".py")):
+                continue
+            fpath = root_path / fname
+            rel = str(fpath.relative_to(skill_path))
+            try:
+                content = fpath.read_bytes()
+                h.update(rel.encode())
+                h.update(content)
+            except OSError:
+                pass
+    return h.hexdigest()
 
 
 def check_github_comments(issue_id: str, target_sha: str, target_model: str) -> bool:
@@ -48,13 +64,14 @@ def check_github_comments(issue_id: str, target_sha: str, target_model: str) -> 
             ],
             capture_output=True, text=True, check=True,
         )
-    except subprocess.CalledProcessError as e:
-        # A transient gh failure means we cannot confirm — warn loudly but do not
-        # silently skip: return False so the benchmark still runs rather than being
-        # dropped entirely. The run manifest will record it for audit.
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        # A transient gh failure or missing gh binary means we cannot confirm —
+        # warn loudly but do not silently skip: return False so the benchmark
+        # still runs rather than being dropped entirely.
+        err_msg = e.stderr if isinstance(e, subprocess.CalledProcessError) else str(e)
         print(
             f"Warning: gh failed checking comments for issue {issue_id} — "
-            f"treating as pending (may cause a duplicate if transient): {e.stderr}",
+            f"treating as pending (may cause a duplicate if transient): {err_msg}",
             file=sys.stderr,
         )
         return False
@@ -148,7 +165,7 @@ def main() -> None:
         if not (skill_path / "SKILL.md").exists():
             continue
 
-        skill_sha = get_git_sha(skill_path)
+        skill_sha = get_skill_content_sha(skill_path)
 
         if not check_github_comments(eval_id, skill_sha, args.model):
             eval_case["_skill_name"] = primary_skill_name

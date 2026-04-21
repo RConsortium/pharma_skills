@@ -102,29 +102,70 @@ class TestCheckGithubComments(unittest.TestCase):
         result = gne.check_github_comments("github-issue-21", "abc123", "claude-sonnet-4-6")
         self.assertFalse(result)
 
+    @patch("get_next_eval.subprocess.run")
+    def test_gh_missing_returns_false_with_warning(self, mock_run):
+        mock_run.side_effect = FileNotFoundError(2, "No such file or directory", "gh")
+        # Should not raise when gh binary is absent — returns False and prints warning
+        result = gne.check_github_comments("github-issue-21", "abc123", "claude-sonnet-4-6")
+        self.assertFalse(result)
+
     def test_invalid_issue_id_returns_false(self):
         self.assertFalse(gne.check_github_comments("not-a-valid-id", "sha", "model"))
 
 
-class TestGetGitSha(unittest.TestCase):
-    @patch("get_next_eval.subprocess.run")
-    def test_returns_sha(self, mock_run):
-        mock_run.return_value = MagicMock(stdout="deadbeef\n", returncode=0)
-        result = gne.get_git_sha(Path("/some/skill"))
-        self.assertEqual(result, "deadbeef")
+class TestGetSkillContentSha(unittest.TestCase):
+    def _make_skill_dir(self, tmp_path, files):
+        """Create a temporary skill directory with the given {rel_path: content} files."""
+        import os
+        skill_dir = Path(tmp_path) / "my-skill"
+        for rel, content in files.items():
+            fpath = skill_dir / rel
+            fpath.parent.mkdir(parents=True, exist_ok=True)
+            fpath.write_text(content)
+        return skill_dir
 
-    @patch("get_next_eval.subprocess.run")
-    def test_empty_output_returns_unknown(self, mock_run):
-        mock_run.return_value = MagicMock(stdout="", returncode=0)
-        result = gne.get_git_sha(Path("/some/skill"))
-        self.assertEqual(result, "unknown")
+    def test_returns_hex_string(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = self._make_skill_dir(tmp, {"SKILL.md": "hello"})
+            sha = gne.get_skill_content_sha(skill_dir)
+            self.assertRegex(sha, r"^[0-9a-f]{64}$")
 
-    @patch("get_next_eval.subprocess.run")
-    def test_subprocess_error_exits(self, mock_run):
-        import subprocess
-        mock_run.side_effect = subprocess.CalledProcessError(128, "git", stderr="not a repo")
-        with self.assertRaises(SystemExit):
-            gne.get_git_sha(Path("/some/skill"))
+    def test_deterministic_same_files(self):
+        import tempfile
+        files = {"SKILL.md": "content A", "reference.md": "content B"}
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            sha1 = gne.get_skill_content_sha(self._make_skill_dir(tmp1, files))
+            sha2 = gne.get_skill_content_sha(self._make_skill_dir(tmp2, files))
+            self.assertEqual(sha1, sha2)
+
+    def test_different_content_gives_different_sha(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            sha1 = gne.get_skill_content_sha(self._make_skill_dir(tmp1, {"SKILL.md": "v1"}))
+            sha2 = gne.get_skill_content_sha(self._make_skill_dir(tmp2, {"SKILL.md": "v2"}))
+            self.assertNotEqual(sha1, sha2)
+
+    def test_excludes_evals_directory(self):
+        import tempfile
+        base_files = {"SKILL.md": "skill content"}
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            sha_without = gne.get_skill_content_sha(self._make_skill_dir(tmp1, base_files))
+            sha_with_evals = gne.get_skill_content_sha(
+                self._make_skill_dir(tmp2, {**base_files, "evals/case.json": '{"id":"test"}'})
+            )
+            # Adding a file under evals/ must not change the hash
+            self.assertEqual(sha_without, sha_with_evals)
+
+    def test_ignores_non_md_py_files(self):
+        import tempfile
+        base_files = {"SKILL.md": "content"}
+        with tempfile.TemporaryDirectory() as tmp1, tempfile.TemporaryDirectory() as tmp2:
+            sha1 = gne.get_skill_content_sha(self._make_skill_dir(tmp1, base_files))
+            sha2 = gne.get_skill_content_sha(
+                self._make_skill_dir(tmp2, {**base_files, "data.csv": "a,b,c"})
+            )
+            self.assertEqual(sha1, sha2)
 
 
 class TestWriteRunManifest(unittest.TestCase):
