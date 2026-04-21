@@ -20,9 +20,37 @@ echo "[setup] R ${R_VERSION} available."
 # 2. Install required R packages via Posit Public Package Manager
 #    (pre-compiled Linux binaries — much faster than building from source)
 # ---------------------------------------------------------------------------
-Rscript - <<'REOF'
+
+# Detect OS codename for the correct PPM binary URL (e.g. noble, jammy, focal)
+OS_CODENAME=$(. /etc/os-release 2>/dev/null && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}" || true)
+if [ -z "${OS_CODENAME}" ] && command -v lsb_release &>/dev/null; then
+  OS_CODENAME=$(lsb_release -cs 2>/dev/null || true)
+fi
+
+if [ -n "${OS_CODENAME}" ]; then
+  PPM_URL="https://packagemanager.posit.co/cran/__linux__/${OS_CODENAME}/latest"
+  echo "[setup] Detected OS codename '${OS_CODENAME}' — using PPM URL: ${PPM_URL}"
+else
+  PPM_URL="https://cloud.r-project.org"
+  echo "[setup] Could not detect OS codename — falling back to CRAN: ${PPM_URL}"
+fi
+
+Rscript --no-save - "${PPM_URL}" <<'REOF'
+ppm_url <- commandArgs(trailingOnly = TRUE)[1]
+
+# Verify the PPM URL is reachable and has packages; fall back to CRAN if not
+ppm_ok <- tryCatch({
+  av <- available.packages(repos = ppm_url)
+  nrow(av) > 100
+}, error = function(e) FALSE)
+
+repo_url <- if (ppm_ok) ppm_url else {
+  message("[setup] PPM URL unreachable — falling back to CRAN")
+  "https://cloud.r-project.org"
+}
+
 options(
-  repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"),
+  repos = c(CRAN = repo_url),
   warn  = 1   # print warnings immediately
 )
 
@@ -49,7 +77,7 @@ missing   <- all_pkgs[!all_pkgs %in% installed]
 
 if (length(missing) > 0) {
   message("[setup] Installing missing packages: ", paste(missing, collapse = ", "))
-  install.packages(missing, quiet = FALSE)
+  install.packages(missing, quiet = FALSE, dependencies = TRUE)
 }
 
 # Verify every package can actually be loaded
