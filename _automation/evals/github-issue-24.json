@@ -19,6 +19,7 @@
     "\"Minimum follow-up constraint is met: the first analysis (IA1) occurs at least 3 months after enrollment ends, OR the violation is explicitly flagged in gsd_results.json or the skill log\",",
     "\"Minimum gap constraint is met: all consecutive analysis pairs (IA1-IA2, IA2-FA) are at least 6 months apart, OR the violations are explicitly flagged in gsd_results.json or the skill log\""
   ],
+  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]

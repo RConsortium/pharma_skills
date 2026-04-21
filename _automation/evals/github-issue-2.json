@@ -7,6 +7,7 @@
     "The script must use the `gsDesign` R package.",
     "The script must accurately reproduce the trial design parameters and numbers documented in the SAP."
   ],
+  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]

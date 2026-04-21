@@ -11,6 +11,7 @@
     "multiplicity_diagram.png exists",
     "gsd_report.docx exists"
   ],
+  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]

@@ -12,6 +12,7 @@
     "Output provides the inverse normal combination test weights (w1 \u2248 0.756, w2 \u2248 0.655) or explains how to derive them",
     "`gsd_results.json` does not contain a total_N or total_events field populated as if a complete standard GSD was produced without qualification"
   ],
+  "language": "R",
   "target_skills": [
     "`group-sequential-design`"
   ]

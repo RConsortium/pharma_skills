@@ -12,6 +12,7 @@
     "Word report explicitly states the enrollment pattern (three-segment ramp) and its effect on IA timing, not a summary that treats enrollment as uniform",
     "`gsd_results.json` must contain a \"sensitivity_table\" array (per the skill's N-first workflow) with at least one row showing N consistent with the piecewise enrollment ramp, computed as N = 60\u00d76 + 15\u00d712 + 5\u00d7K for varying K (last-period months), not arbitrary round numbers. A sensitivity table with uniform-enrollment-derived N values is a failing answer"
   ],
+  "language": "R",
   "target_skills": [
     "`group-sequential-design`"
   ]

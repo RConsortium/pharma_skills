@@ -13,6 +13,7 @@
     "Calendar time to final analysis reported in `gsd_results.json` accounts for the competing event reducing the observed CV death rate below 2.5%/year (projected final analysis \u2265 60 months from first patient in)",
     "`gsd_results.json` must contain \"min_followup\", \"min_gap\", and \"feasible_range\" keys (per the skill's required JSON schema), and the \"feasible_range\" upper bound must be consistent with the 9,000 patient enrollment specified. If the skill uses only the CV death rate (2.5%/year) without competing event adjustment, the projected calendar time to final analysis stored in `gsd_results.json` will be< 60 months, which is a failing answer, as the competing event removal from the at-risk set extends the timeline beyond this"
   ],
+  "language": "R",
   "target_skills": [
     "`group-sequential-design`"
   ]

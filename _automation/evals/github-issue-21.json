@@ -16,6 +16,7 @@
     "IA/FA gap is evaluated and a second IA is suggested if gap > 18 months",
     "In the recommended design, the first IA occurs within 18 months from the end of enrollment"
   ],
+  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]
