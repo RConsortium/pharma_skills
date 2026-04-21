@@ -85,21 +85,25 @@ Identify "Key Metrics" from the assertions (e.g., Sample Size, Power, Error Rate
 
 ## Step 4 — Archive and Upload Detailed Outputs
 
-To allow for deep inspection of the results:
+To allow for deep inspection of the results (and support downloading binary files like `.docx` and `.png`):
 
-1. **Package:** Create a zip archive containing both `output_A/` and `output_B/` directories.
+1. **Package:** Create a zip archive containing both `output_A/` and `output_B/` directories from the temporary folder.
    ```bash
-   zip -r benchmark_results_{eval_id}.zip output_A/ output_B/
+   cd /tmp/benchmark_{id} && zip -r benchmark_results_{eval_id}.zip output_A/ output_B/
    ```
-2. **Upload:** 
-   - **Preferred:** If running in a CI environment with artifact support, upload the zip and capture the URL.
-   - **Fallback (Gist):** For a quick public reference of the most important files (scripts, JSON results, logs), create a GitHub Gist:
+2. **Upload:** Use the GitHub CLI to upload the zip file to a dedicated "Benchmark Results" release.
+   - First, check if the release exists. If not, create it:
      ```bash
-     gh gist create output_A/*.py output_A/*.R output_A/*.json output_B/*.py output_B/*.R output_B/*.json --public --desc "Benchmark Details: {_skill_name} - {eval_id}"
+     gh release view "benchmark-results" --repo RConsortium/pharma_skills || gh release create "benchmark-results" --repo RConsortium/pharma_skills --title "Automated Benchmark Results" --notes "Rolling release for automated benchmark zip files." --prerelease
      ```
-   - **Local/Repo:** If instructed, commit the zip to the `{skill}/evals/benchmark-results/` directory in the repository.
+   - Upload the zip file as a release asset (overwriting if it already exists):
+     ```bash
+     cd /tmp/benchmark_{id} && gh release upload "benchmark-results" benchmark_results_{eval_id}.zip --repo RConsortium/pharma_skills --clobber
+     ```
+   - Construct the direct download URL:
+     `https://github.com/RConsortium/pharma_skills/releases/download/benchmark-results/benchmark_results_{eval_id}.zip`
 
-Capture the resulting URL for inclusion in the report.
+Capture this direct download URL for inclusion in the markdown report.
 
 ---
 
@@ -172,7 +176,7 @@ Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using thi
 
 ### Detailed Artifacts
 
-**Detailed Outputs:** [View Full Archive/Gist]({upload_url})
+**Detailed Outputs:** [Download Full Benchmark Archive (.zip)]({upload_url})
 
 #### Agent A (With Skill)
 {Repeat for key files like .R, .py, .json}
@@ -231,4 +235,6 @@ but using the API ID avoids any ambiguity across runs.
 - Only one high-priority evaluation is processed per run
 - Deduplication correctly accounts for both Skill SHA and Model Name (normalised)
 - LLM token usage is minimised by offloading discovery to a script
+- Results are posted as comments on the correct GitHub issues
+overy to a script
 - Results are posted as comments on the correct GitHub issues
