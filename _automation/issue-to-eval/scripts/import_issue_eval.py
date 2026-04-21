@@ -49,12 +49,12 @@ def parse_issue_markdown(body: str) -> dict:
     Emits a WARNING to stderr for any expected header that produces an empty result (fix 1.5).
     """
     sections = {
-        "skill":           r"## Skills\s*\n(.*?)(?=\n##|$)",
-        "language":        r"## Language(?: \(Optional\))?\s*\n(.*?)(?=\n##|$)",
-        "prompt":          r"## Query\s*\n(.*?)(?=\n##|$)",
-        "expected_output": r"## Expected Output\s*\n(.*?)(?=\n##|$)",
-        "files":           r"## Attached Files / Input Context \(Optional\)\s*\n(.*?)(?=\n##|$)",
-        "assertions":      r"## Rubric Criteria \(Assertions\)\s*\n(.*?)(?=\n##|$)",
+        "skill":           r"## Skills[ \t]*\n(.*?)(?=\n##|$)",
+        "language":        r"## Language(?: \(Optional\))?[ \t]*\n(.*?)(?=\n##|$)",
+        "prompt":          r"## Query[ \t]*\n(.*?)(?=\n##|$)",
+        "expected_output": r"## Expected Output[ \t]*\n(.*?)(?=\n##|$)",
+        "files":           r"## Attached Files / Input Context \(Optional\)[ \t]*\n(.*?)(?=\n##|$)",
+        "assertions":      r"## Rubric Criteria \(Assertions\)[ \t]*\n(.*?)(?=\n##|$)",
     }
 
 
