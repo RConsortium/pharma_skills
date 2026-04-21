@@ -48,13 +48,14 @@ def check_github_comments(issue_id: str, target_sha: str, target_model: str) -> 
             ],
             capture_output=True, text=True, check=True,
         )
-    except subprocess.CalledProcessError as e:
-        # A transient gh failure means we cannot confirm — warn loudly but do not
-        # silently skip: return False so the benchmark still runs rather than being
-        # dropped entirely. The run manifest will record it for audit.
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        # A transient gh failure or missing gh binary means we cannot confirm —
+        # warn loudly but do not silently skip: return False so the benchmark
+        # still runs rather than being dropped entirely.
+        err_msg = e.stderr if isinstance(e, subprocess.CalledProcessError) else str(e)
         print(
             f"Warning: gh failed checking comments for issue {issue_id} — "
-            f"treating as pending (may cause a duplicate if transient): {e.stderr}",
+            f"treating as pending (may cause a duplicate if transient): {err_msg}",
             file=sys.stderr,
         )
         return False
