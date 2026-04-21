@@ -42,7 +42,7 @@ Each automated report provides a deep-dive comparison:
 
 To add a new test case to a skill's evaluation suite:
 1.  Open a new GitHub Issue with the `benchmark` label.
-2.  Follow the template headers: `## Skills`, `## Query`, `## Expected Output`, and `## Rubric Criteria (Assertions)`.
+2.  Follow the template headers: `## Skills`, optional `## Language`, `## Query`, `## Expected Output`, and `## Rubric Criteria (Assertions)`.
 3.  Run the **Issue to Eval** skill (`python3 _automation/issue-to-eval/scripts/sync_benchmarks.py`) to automatically import the issue into the `_automation/evals/` directory.
 
 ## Usage

@@ -29,5 +29,6 @@ python3 _automation/issue-to-eval/scripts/import_issue_eval.py --issue {ISSUE_NU
 - If an issue is modified on GitHub, running the sync script will propagate those changes to the local evaluation suite.
 
 ## Requirements
-- The issue MUST follow the standard benchmark template with headers: `## Skills`, `## Query`, `## Expected Output`, `## Attached Files / Input Context`, and `## Rubric Criteria (Assertions)`.
-s)`.
+- The issue MUST follow the standard benchmark template with headers: `## Skills`, optional `## Language`, `## Query`, `## Expected Output`, `## Attached Files / Input Context`, and `## Rubric Criteria (Assertions)`.
+- `## Skills` may contain one or more skill names, one per line or comma-separated. The generated eval stores them in `target_skills`.
+- `## Language` is optional. When present, the generated eval stores it in `language` so the benchmark runner can pass the same language constraint to both agents.

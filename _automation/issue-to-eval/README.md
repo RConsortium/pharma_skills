@@ -12,7 +12,7 @@ When a new issue is logged following the standard benchmark template, you can si
 
 > "Curate this github issue into an eval: <paste text or link>"
 
-This skill will trigger and intelligently extract the necessary components (`prompt`, `expected_output`, `files`, `assertions`) and construct the JSON spec expected by standard benchmark graders.
+This skill will trigger and intelligently extract the necessary components (`target_skills`, optional `language`, `prompt`, `expected_output`, `files`, `assertions`) and construct the JSON spec expected by standard benchmark graders.
 
 ## Example
 
@@ -20,6 +20,8 @@ This skill will trigger and intelligently extract the necessary components (`pro
 > "Parse this issue text into a benchmark:
 > \## Skills 
 > group-sequential-design
+> \## Language
+> R
 > \## Query 
 > Please output an interim bounds analysis..."
 
@@ -27,7 +29,8 @@ This skill will trigger and intelligently extract the necessary components (`pro
 > "Here is the extracted evaluation data:"
 > \`\`\`json
 > {
->   "skill_name": "group-sequential-design",
+>   "target_skills": ["group-sequential-design"],
+>   "language": "R",
 >   "evals": [ ... ]
 > }
 > \`\`\`

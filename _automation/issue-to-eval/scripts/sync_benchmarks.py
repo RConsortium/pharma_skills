@@ -4,7 +4,7 @@ import sys
 import argparse
 from import_issue_eval import parse_issue_markdown, save_to_evals
 
-DEFAULT_REPO = "RConsortium/pharma_skills"
+DEFAULT_REPO = "RConsortium/pharma-skills"
 
 
 def fetch_benchmark_issues(repo: str) -> list[dict]:
@@ -60,8 +60,10 @@ def sync_all_benchmarks(repo: str) -> None:
                 "files": parsed.get("files", []),
                 "assertions": parsed.get("assertions", []),
             }
+            if parsed.get("language"):
+                eval_entry["language"] = parsed["language"]
 
-            status = save_to_evals(eval_entry, parsed.get("skill_name", ""))
+            status = save_to_evals(eval_entry, parsed.get("target_skills", []))
             print(f"Issue #{issue['number']}: {status}")
             synced += 1
 

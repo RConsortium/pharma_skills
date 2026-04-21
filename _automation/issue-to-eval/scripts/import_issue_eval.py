@@ -4,22 +4,43 @@ import argparse
 import sys
 import os
 import re
+from typing import Sequence, Union
 
 # Headers the parser expects — must stay in sync with .github/ISSUE_TEMPLATE/benchmark.md
 EXPECTED_HEADERS = {
     "skill": "## Skills",
+    "language": "## Language (Optional)",
     "prompt": "## Query",
     "expected_output": "## Expected Output",
     "files": "## Attached Files / Input Context (Optional)",
     "assertions": "## Rubric Criteria (Assertions)",
 }
+OPTIONAL_KEYS = {"language", "files"}
 
 
 def clean_value(val: str) -> str:
-    """Strip leading bullets, hyphens, and whitespace."""
+    """Strip template comments, leading bullets, hyphens, and whitespace."""
     if not val:
         return ""
+    val = re.sub(r"<!--.*?-->", "", val, flags=re.DOTALL)
     return re.sub(r"^[\s\-\*•]+", "", val.strip()).strip()
+
+
+def normalize_skill_name(name: str) -> str:
+    return clean_value(name).lower().replace(" ", "-").replace("_", "-")
+
+
+def parse_list_items(content: str, split_commas: bool = False) -> list[str]:
+    """Parse newline/comma separated issue-template values."""
+    cleaned = re.sub(r"<!--.*?-->", "", content or "", flags=re.DOTALL)
+    items: list[str] = []
+    for line in cleaned.splitlines():
+        parts = line.split(",") if split_commas else [line]
+        for part in parts:
+            value = clean_value(part)
+            if value:
+                items.append(value)
+    return items
 
 
 def parse_issue_markdown(body: str) -> dict:
@@ -29,6 +50,7 @@ def parse_issue_markdown(body: str) -> dict:
     """
     sections = {
         "skill":           r"## Skills\n(.*?)(?=\n##|$)",
+        "language":        r"## Language(?: \(Optional\))?\n(.*?)(?=\n##|$)",
         "prompt":          r"## Query\n(.*?)(?=\n##|$)",
         "expected_output": r"## Expected Output\n(.*?)(?=\n##|$)",
         "files":           r"## Attached Files / Input Context \(Optional\)\n(.*?)(?=\n##|$)",
@@ -41,11 +63,19 @@ def parse_issue_markdown(body: str) -> dict:
         content = match.group(1).strip() if match else ""
 
         if key == "skill":
-            data["skill_name"] = clean_value(content).lower().replace(" ", "-").replace("_", "-")
+            target_skills = [
+                normalize_skill_name(skill)
+                for skill in parse_list_items(content, split_commas=True)
+                if normalize_skill_name(skill)
+            ]
+            data["target_skills"] = target_skills
+            data["skill_name"] = target_skills[0] if target_skills else ""
+        elif key == "language":
+            data["language"] = clean_value(content)
         elif key == "files":
-            data["files"] = [clean_value(f) for f in content.split("\n") if clean_value(f)]
+            data["files"] = parse_list_items(content, split_commas=True)
         elif key == "assertions":
-            data["assertions"] = [clean_value(a) for a in content.split("\n") if clean_value(a)]
+            data["assertions"] = parse_list_items(content)
         else:
             data[key] = clean_value(content)
 
@@ -57,24 +87,30 @@ def parse_issue_markdown(body: str) -> dict:
             else len(result_value) == 0
         )
         if is_empty:
-            print(
-                f"WARNING: '{EXPECTED_HEADERS[key]}' section is empty or missing. "
-                "Ensure the issue follows the benchmark template.",
-                file=sys.stderr,
-            )
+            if key not in OPTIONAL_KEYS:
+                print(
+                    f"WARNING: '{EXPECTED_HEADERS[key]}' section is empty or missing. "
+                    "Ensure the issue follows the benchmark template.",
+                    file=sys.stderr,
+                )
 
     return data
 
 
-def save_to_evals(eval_entry: dict, skill_name: str) -> str:
-    if not skill_name or skill_name == "unknown-skill":
+def save_to_evals(eval_entry: dict, skill_name: Union[str, Sequence[str]]) -> str:
+    target_skills = (
+        [normalize_skill_name(skill) for skill in skill_name if normalize_skill_name(skill)]
+        if isinstance(skill_name, (list, tuple))
+        else [normalize_skill_name(skill_name)] if normalize_skill_name(skill_name) else []
+    )
+    if not target_skills or target_skills == ["unknown-skill"]:
         return "Error: Could not determine target skill name from issue."
 
     target_dir = os.path.join("_automation", "evals")
     os.makedirs(target_dir, exist_ok=True)
     eval_file = os.path.join(target_dir, f"{eval_entry['id']}.json")
 
-    eval_entry["target_skills"] = [skill_name]
+    eval_entry["target_skills"] = target_skills
 
     if os.path.exists(eval_file):
         with open(eval_file) as f:
@@ -85,7 +121,7 @@ def save_to_evals(eval_entry: dict, skill_name: str) -> str:
 
         changed = any(
             existing.get(field) != eval_entry.get(field)
-            for field in ("prompt", "expected_output", "files", "assertions", "target_skills")
+            for field in ("prompt", "expected_output", "files", "assertions", "target_skills", "language")
         )
         if not changed:
             return f"Skipped: {eval_entry['id']} in _automation/evals/ is up to date."
@@ -131,8 +167,10 @@ def main() -> None:
         "files": parsed.get("files", []),
         "assertions": parsed.get("assertions", []),
     }
+    if parsed.get("language"):
+        eval_entry["language"] = parsed["language"]
 
-    status = save_to_evals(eval_entry, parsed.get("skill_name", ""))
+    status = save_to_evals(eval_entry, parsed.get("target_skills", []))
     print(status)
 
 

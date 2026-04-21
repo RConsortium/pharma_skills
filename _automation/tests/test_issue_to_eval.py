@@ -18,6 +18,9 @@ import import_issue_eval as ite  # noqa: E402
 GOLDEN_BODY = """## Skills
 group-sequential-design
 
+## Language (Optional)
+R
+
 ## Query
 Design a Phase 3 trial for OS in 1L NSCLC.
 
@@ -37,6 +40,28 @@ class TestParseIssueMarkdown(unittest.TestCase):
     def test_parses_skill_name(self):
         parsed = ite.parse_issue_markdown(GOLDEN_BODY)
         self.assertEqual(parsed["skill_name"], "group-sequential-design")
+        self.assertEqual(parsed["target_skills"], ["group-sequential-design"])
+
+    def test_parses_multiple_target_skills(self):
+        body = GOLDEN_BODY.replace(
+            "group-sequential-design",
+            "Group Sequential Design, survival-analysis\n- dose-finding"
+        )
+        parsed = ite.parse_issue_markdown(body)
+        self.assertEqual(
+            parsed["target_skills"],
+            ["group-sequential-design", "survival-analysis", "dose-finding"],
+        )
+        self.assertEqual(parsed["skill_name"], "group-sequential-design")
+
+    def test_parses_language(self):
+        parsed = ite.parse_issue_markdown(GOLDEN_BODY)
+        self.assertEqual(parsed["language"], "R")
+
+    def test_language_is_optional(self):
+        body = GOLDEN_BODY.replace("## Language (Optional)\nR\n\n", "")
+        parsed = ite.parse_issue_markdown(body)
+        self.assertEqual(parsed.get("language", ""), "")
 
     def test_parses_prompt(self):
         parsed = ite.parse_issue_markdown(GOLDEN_BODY)
@@ -55,6 +80,14 @@ class TestParseIssueMarkdown(unittest.TestCase):
         self.assertEqual(len(parsed["assertions"]), 2)
         self.assertIn("gsd_design.R exists and calls gsSurv()", parsed["assertions"])
 
+    def test_assertions_keep_commas(self):
+        body = GOLDEN_BODY.replace(
+            "- gsd_results.json exists and total_N < 450",
+            "- power is 90%, alpha is 0.025, and N < 450",
+        )
+        parsed = ite.parse_issue_markdown(body)
+        self.assertIn("power is 90%, alpha is 0.025, and N < 450", parsed["assertions"])
+
     def test_skill_name_lowercased_and_hyphenated(self):
         body = GOLDEN_BODY.replace("group-sequential-design", "Group Sequential Design")
         parsed = ite.parse_issue_markdown(body)
@@ -69,6 +102,8 @@ class TestParseIssueMarkdown(unittest.TestCase):
     def test_parses_empty_section_without_capturing_next(self):
         body = """## Skills
 group-sequential-design
+
+## Language
 
 ## Query
 
@@ -109,7 +144,7 @@ class TestSaveToEvals(unittest.TestCase):
 
     def test_adds_new_entry(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            entry = {"id": "github-issue-1", "prompt": "p", "expected_output": "e", "files": [], "assertions": ["a"]}
+            entry = {"id": "github-issue-1", "prompt": "p", "expected_output": "e", "files": [], "assertions": ["a"], "language": "R"}
             
             import os
             orig_join = os.path.join
@@ -127,6 +162,25 @@ class TestSaveToEvals(unittest.TestCase):
                 self.assertTrue(path.exists())
                 data = json.loads(path.read_text())
                 self.assertEqual(data["target_skills"], ["my-skill"])
+                self.assertEqual(data["language"], "R")
+
+    def test_adds_multiple_target_skills(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            entry = {"id": "github-issue-1", "prompt": "p", "expected_output": "e", "files": [], "assertions": ["a"]}
+
+            import os
+            orig_join = os.path.join
+            def patched_join(*args):
+                if len(args) >= 2 and args[0] == "_automation" and args[1] == "evals":
+                    return orig_join(tmpdir, *args)
+                return orig_join(*args)
+
+            with patch("import_issue_eval.os.path.join", side_effect=patched_join):
+                status = ite.save_to_evals(entry, ["my-skill", "other_skill"])
+                self.assertIn("Success", status)
+                path = Path(tmpdir) / "_automation" / "evals" / "github-issue-1.json"
+                data = json.loads(path.read_text())
+                self.assertEqual(data["target_skills"], ["my-skill", "other-skill"])
 
     def test_add_and_skip_lifecycle(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -154,6 +208,10 @@ class TestSaveToEvals(unittest.TestCase):
                 updated = {**entry, "prompt": "new prompt"}
                 status3 = ite.save_to_evals(updated, "my-skill")
                 self.assertIn("Updated", status3)
+
+                # Changed language → update
+                status4 = ite.save_to_evals({**updated, "language": "R"}, "my-skill")
+                self.assertIn("Updated", status4)
 
     def test_unknown_skill_returns_error(self):
         result = ite.save_to_evals({"id": "x"}, "")
