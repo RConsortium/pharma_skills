@@ -16,5 +16,6 @@
   ],
   "target_skills": [
     "group-sequential-design"
-  ]
+  ],
+  "language": "R"
 }

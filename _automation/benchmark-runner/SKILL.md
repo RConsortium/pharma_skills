@@ -54,7 +54,13 @@ Use the Agent tool (e.g., `generalist`) to launch both agents simultaneously for
 
 **Agent B — WITHOUT the skill:**
 - Give the exact same `prompt` and `files`.
-- Instruct: "Complete this task using only your base knowledge and tools. Do NOT use any SKILL.md or skill instructions. Save all generated files into a directory named `output_B/`. Produce all expected outputs. **At the very end of your response, please state your best estimate of the total tokens used in this turn (input + output) using the format: `[USAGE: {total_tokens}]`.**"
+- If the eval case has a `language` field (e.g., `"language": "R"`), prepend one line: *"Use {language} for this task."* That is the **only** addition allowed beyond the raw prompt.
+- Instruct: "Complete this task using only your base knowledge and tools. Do NOT use any SKILL.md or skill instructions. Save all generated files into a directory named `output_B/`. **At the very end of your response, please state your best estimate of the total tokens used in this turn (input + output) using the format: `[USAGE: {total_tokens}]`.**"
+
+> **Firewall rule — do NOT add any of the following to Agent B's prompt:**
+> filenames, package names, install commands, expected output structure, assertion text,
+> or any other implementation hint. Agent B must derive all of that from the prompt alone.
+> Violating this rule contaminates the baseline and invalidates the comparison.
 
 Both agents use the same model (whichever model this session is running).
 
