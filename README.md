@@ -37,7 +37,7 @@ You can add new benchmark data by creating new github issues following the `benc
 
 ### Evaluate Benchmark data 
 
-If you're interested in contributing to the skill evaluation using your Claude Code account, you can follow this [https://github.com/user-attachments/assets/05d24707-36b8-49fc-86ea-beb6365e288e](video) to set it up.
+If you're interested in contributing to the skill evaluation using your Claude Code account, following this [video](https://github.com/user-attachments/assets/05d24707-36b8-49fc-86ea-beb6365e288e) to set it up.
 
 ## Community
 
