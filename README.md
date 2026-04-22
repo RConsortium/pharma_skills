@@ -21,6 +21,8 @@ Ask your agent to directly enable a skill from this repo:
 
 ## Contributing
 
+### New Skills 
+
 Contributions of new skills are welcome. Each skill should:
 
 1. Live in its own folder at the repo root
@@ -28,6 +30,14 @@ Contributions of new skills are welcome. Each skill should:
 3. Include a `README.md` describing what the skill does, requirements, and usage
 4. Include an MIT `LICENSE`
 5. Follow the [Agent Skill Development Lifecycle](LIFECYCLE.md)
+
+### New Benchmark data 
+
+You can add new benchmark data by creating new github issues following the `benchmark` templates.
+
+### Evaluate Benchmark data 
+
+If you're interested in contributing to the skill evaluation using your Claude Code account, you can follow this [https://github.com/user-attachments/assets/05d24707-36b8-49fc-86ea-beb6365e288e](video) to set it up.
 
 ## Community
 
