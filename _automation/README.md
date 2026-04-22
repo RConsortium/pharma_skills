@@ -31,15 +31,18 @@ If using a cloud CLI platform (like claude.ai/code, or equivalent Gemini/OpenAI 
     ```
     cran.r-project.org
     cloud.r-project.org
-    cran.rstudio.com
+    r-lib.github.io
+    packagemanager.posit.co
     *.r-project.org
     ```
 - **Setup script** (installs R and pre-caches key packages — result is cached, runs once):
   ```bash
   #!/bin/bash
-  apt-get update -qq && apt-get install -y --no-install-recommends r-base
-  Rscript -e "install.packages(c('gsDesign', 'rpact', 'jsonlite'), repos='https://cloud.r-project.org')"
+  bash _automation/benchmark-runner/scripts/setup_r_env.sh
   ```
+  The script handles everything: installs R, system build libraries, pins CRAN to a
+  stable IP to avoid DNS failures, bootstraps `pak`, and installs all required packages
+  in parallel using pre-compiled binaries where available.
 
 ### 2. Create the routine
 
