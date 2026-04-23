@@ -117,8 +117,8 @@ Text files are also embedded in `_common_task_prompt` under neutral names such a
 Example launcher shape for each side:
 
 ```bash
-cd /tmp/benchmark_{id}/agent_A && claude -p "$(cat prompt_A.txt)" --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob"
-cd /tmp/benchmark_{id}/agent_B && claude -p "$(cat prompt_B.txt)" --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob"
+cd /tmp/benchmark_{id}/agent_A && cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob"
+cd /tmp/benchmark_{id}/agent_B && cat prompt_B.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob"
 ```
 
 `prompt_A.txt` should contain only the skill context plus `_prompt_a`. `prompt_B.txt` should
