@@ -334,22 +334,51 @@ or `result`. The `result` line contains API-reported `usage.input_tokens` /
 
 Extract the issue number from the `id` (e.g., `"github-issue-21"` -> **#21**).
 
-**Primary — MCP tool (no token required):**
-Use the `mcp__github__add_issue_comment` tool:
-```
-owner: RConsortium
-repo:  pharma-skills
-issue_number: {issue_number}
-body: <contents of /tmp/benchmark_comment_{skill}_{eval_id}.md>
-```
+If a benchmark result for the same model already exists on the issue, **update it** instead
+of creating a new comment. "Same model" is detected by scanning comment bodies for the string
+`"Automated Benchmark Results"` together with the model name (e.g. `claude-sonnet-4-6`).
+
+**Primary — MCP tools (no token required):**
+
+1. Fetch existing comments with `mcp__github__issue_read`:
+   ```
+   method: get_comments
+   owner:  RConsortium
+   repo:   pharma-skills
+   issue_number: {issue_number}
+   ```
+2. Scan the returned comments for one whose `body` contains both
+   `"Automated Benchmark Results"` and `{CURRENT_MODEL_NAME}`.
+   - **Found** — note its `id`, then PATCH it via REST:
+     ```bash
+     curl -s -X PATCH \
+       -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
+       -H "Accept: application/vnd.github+json" \
+       -H "Content-Type: application/json" \
+       https://api.github.com/repos/RConsortium/pharma-skills/issues/comments/{comment_id} \
+       --data-binary @/tmp/benchmark_comment_{skill}_{eval_id}.md \
+       | python3 -c "import json,sys; print(json.load(sys.stdin).get('html_url',''))"
+     ```
+     > Note: `--data-binary` sends raw JSON body. Wrap the file contents in `{"body": "..."}` if using a JSON payload builder.
+   - **Not found** — create a new comment with `mcp__github__add_issue_comment`:
+     ```
+     owner: RConsortium
+     repo:  pharma-skills
+     issue_number: {issue_number}
+     body: <contents of /tmp/benchmark_comment_{skill}_{eval_id}.md>
+     ```
 
 **Fallback — REST API (requires `GH_TOKEN` or `GITHUB_TOKEN`):**
-If the MCP tool is unavailable or returns an error, use the Python fallback script:
+If the MCP tool is unavailable or returns an error, the Python script handles the full
+upsert automatically:
 ```bash
 python3 _automation/benchmark-runner/scripts/post_issue_comment.py {issue_number} \
   --repo RConsortium/pharma-skills \
-  --body-file /tmp/benchmark_comment_{skill}_{eval_id}.md
+  --body-file /tmp/benchmark_comment_{skill}_{eval_id}.md \
+  --model {CURRENT_MODEL_NAME}
 ```
+Pass `--model` so the script can find and update an existing comment. Without `--model` it
+always creates a new comment.
 
 ---
 
