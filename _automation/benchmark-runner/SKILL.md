@@ -172,19 +172,42 @@ To allow for deep inspection of the results (and support downloading binary file
    ```bash
    cd /tmp/benchmark_{id} && zip -r benchmark_results_{eval_id}.zip agent_A/output_A/ agent_B/output_B/
    ```
-2. **Upload:** Use the GitHub CLI to upload the zip file to a dedicated "Benchmark Results" release.
-   - First, check if the release exists. If not, create it:
-     ```bash
-     gh release view "benchmark-results" --repo RConsortium/pharma-skills || gh release create "benchmark-results" --repo RConsortium/pharma-skills --title "Automated Benchmark Results" --notes "Rolling release for automated benchmark zip files." --prerelease
-     ```
-   - Upload the zip file as a release asset (overwriting if it already exists):
-     ```bash
-     cd /tmp/benchmark_{id} && gh release upload "benchmark-results" benchmark_results_{eval_id}.zip --repo RConsortium/pharma-skills --clobber
-     ```
-   - Construct the direct download URL:
-     `https://github.com/RConsortium/pharma-skills/releases/download/benchmark-results/benchmark_results_{eval_id}.zip`
 
-Capture this direct download URL for inclusion in the markdown report.
+2. **Check/create the release (MCP primary):**
+   Use the `mcp__github__get_release_by_tag` tool with `tag = "benchmark-results"` and
+   `owner = "RConsortium"`, `repo = "pharma-skills"`. If the call succeeds, the release
+   already exists — note its `upload_url` for the next step. If it returns an error (release
+   not found), you must create it via the REST API fallback below, as the MCP server does not
+   expose a create-release tool.
+
+   REST API fallback to create the release (requires `GH_TOKEN` or `GITHUB_TOKEN`):
+   ```bash
+   curl -s -X POST \
+     -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
+     -H "Accept: application/vnd.github+json" \
+     https://api.github.com/repos/RConsortium/pharma-skills/releases \
+     -d '{"tag_name":"benchmark-results","name":"Automated Benchmark Results","body":"Rolling release for automated benchmark zip files.","prerelease":true}'
+   ```
+
+3. **Upload the zip as a release asset (REST API):**
+   The MCP server does not expose a release-asset upload endpoint, so use the REST API
+   directly. Replace `{upload_url_base}` with the `upload_url` from step 2 (strip the
+   `{?name,label}` template suffix):
+   ```bash
+   curl -s -X POST \
+     -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
+     -H "Content-Type: application/zip" \
+     "{upload_url_base}?name=benchmark_results_{eval_id}.zip" \
+     --data-binary @/tmp/benchmark_{id}/benchmark_results_{eval_id}.zip
+   ```
+   If neither `GH_TOKEN` nor `GITHUB_TOKEN` is set, skip the upload and include all agent
+   outputs inline in the report instead (see Step 5 artifacts section).
+
+4. **Construct the direct download URL** (whether upload succeeded or not):
+   `https://github.com/RConsortium/pharma-skills/releases/download/benchmark-results/benchmark_results_{eval_id}.zip`
+
+Capture this URL for inclusion in the markdown report. If the upload was skipped, note that
+in the report and include outputs inline.
 
 ---
 
@@ -284,14 +307,17 @@ Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using thi
 
 Extract the issue number from the `id` (e.g., `"github-issue-21"` -> **#21**).
 
-Post using the `gh` CLI:
-```bash
-gh issue comment {issue_number} --repo RConsortium/pharma-skills --body-file /tmp/benchmark_comment_{skill}_{eval_id}.md
+**Primary — MCP tool (no token required):**
+Use the `mcp__github__add_issue_comment` tool:
+```
+owner: RConsortium
+repo:  pharma-skills
+issue_number: {issue_number}
+body: <contents of /tmp/benchmark_comment_{skill}_{eval_id}.md>
 ```
 
-If `gh` is missing, unauthenticated, or blocked, use the REST API fallback. It requires
-`GH_TOKEN` or `GITHUB_TOKEN` with permission to write issue comments:
-
+**Fallback — REST API (requires `GH_TOKEN` or `GITHUB_TOKEN`):**
+If the MCP tool is unavailable or returns an error, use the Python fallback script:
 ```bash
 python3 _automation/benchmark-runner/scripts/post_issue_comment.py {issue_number} \
   --repo RConsortium/pharma-skills \
