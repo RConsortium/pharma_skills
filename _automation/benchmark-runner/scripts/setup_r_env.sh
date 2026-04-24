@@ -36,36 +36,12 @@ sudo apt-get install -y --no-install-recommends \
   2>/dev/null || echo "[setup] Some system packages failed — continuing."
 
 # ---------------------------------------------------------------------------
-# 3. Pin CRAN to a known IP to prevent DNS cache overflow errors.
-#    R's download engine resolves hostnames separately from the system
-#    resolver cache and can hit "DNS cache overflow" under load.
-# ---------------------------------------------------------------------------
-echo "[setup] Pinning CRAN hostname to bypass DNS cache overflow..."
-pin_host() {
-  local domain="$1"
-  if ! grep -q "${domain}" /etc/hosts 2>/dev/null; then
-    local ip
-    ip=$(curl -s --max-time 10 -w "%{remote_ip}" -o /dev/null "https://${domain}" 2>/dev/null || true)
-    if [ -n "${ip}" ]; then
-      echo "${ip} ${domain}" | sudo tee -a /etc/hosts > /dev/null
-      echo "[setup] Pinned ${domain} -> ${ip}"
-    else
-      echo "[setup] Warning: could not resolve ${domain} — skipping pin."
-    fi
-  else
-    echo "[setup] ${domain} already pinned in /etc/hosts."
-  fi
-}
-pin_host "cran.r-project.org"
-pin_host "cloud.r-project.org"
-
-# ---------------------------------------------------------------------------
-# 4. Bootstrap pak — the fast parallel package manager for R.
+# 3. Bootstrap pak — the fast parallel package manager for R.
 #    pak: parallel downloads, automatic system-dep detection, binary packages.
 #    Install strategy (in order of preference):
 #      a) Already installed → skip.
 #      b) pak's own r-lib CDN (independent of CRAN, pre-built binaries).
-#      c) CRAN with curl + SSL-bypass fallback.
+#      c) CRAN with curl retry + SSL-bypass fallback.
 # ---------------------------------------------------------------------------
 echo "[setup] Checking for pak..."
 Rscript --no-save -e "
@@ -90,9 +66,9 @@ if (ok) {
   quit(status = 0)
 }
 
-# Strategy (b): CRAN with curl download method and SSL bypass
+# Strategy (b): CRAN with curl retry + SSL bypass
 message('[setup] r-lib CDN failed — trying CRAN...')
-options(download.file.method = 'curl', download.file.extra = '-k')
+options(download.file.method = 'curl', download.file.extra = '-k --retry 5 --retry-delay 3 --retry-all-errors')
 tryCatch({
   install.packages('pak', repos = 'https://cran.r-project.org', quiet = FALSE)
 }, error = function(e) stop('[setup] Failed to install pak: ', conditionMessage(e)))
@@ -104,7 +80,7 @@ message('[setup] pak ', as.character(packageVersion('pak')), ' installed from CR
 " 2>&1
 
 # ---------------------------------------------------------------------------
-# 5. Install all required R packages via pak
+# 4. Install all required R packages via pak
 #    pak resolves and installs in parallel, detects missing system libraries,
 #    and prefers pre-compiled binaries when a PPM repo is configured.
 # ---------------------------------------------------------------------------
@@ -119,25 +95,38 @@ echo "[setup] Installing R packages via pak..."
 Rscript --no-save - "${OS_CODENAME:-}" <<'REOF'
 os_codename <- commandArgs(trailingOnly = TRUE)[1]
 
-# Always set curl + SSL-bypass as the download fallback.
-# R's default libcurl method can hit "DNS cache overflow" under connection
-# load; system curl resolves using the /etc/hosts pin we set above.
+# Use system curl (respects OS DNS, follows CDN re-routing on retry)
+# rather than R's libcurl which has its own resolver cache.
+# --retry-all-errors retries on 503/transient failures; --retry-delay
+# gives overloaded edge nodes time to recover between attempts.
 options(
   download.file.method = "curl",
-  download.file.extra  = "-k",
+  download.file.extra  = "-k --retry 5 --retry-delay 3 --retry-all-errors",
   warn = 1
 )
 
 # Choose repository: PPM for pre-compiled binaries, CRAN as fallback.
+# Probe PPM up to 3 times — a single 503 from an edge node should not
+# send the whole install to slower CRAN source builds.
 ppm_url <- if (nzchar(os_codename)) {
   sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", os_codename)
 } else {
   NULL
 }
 
-ppm_ok <- !is.null(ppm_url) && tryCatch({
-  nrow(available.packages(repos = ppm_url)) > 100
-}, error = function(e) FALSE)
+ppm_ok <- FALSE
+if (!is.null(ppm_url)) {
+  for (attempt in 1:3) {
+    ppm_ok <- tryCatch({
+      nrow(available.packages(repos = ppm_url)) > 100
+    }, error = function(e) FALSE)
+    if (ppm_ok) break
+    if (attempt < 3) {
+      message("[setup] PPM probe attempt ", attempt, " failed — retrying in 5s...")
+      Sys.sleep(5)
+    }
+  }
+}
 
 repo_url <- if (ppm_ok) {
   message("[setup] Using PPM binary repo: ", ppm_url)
