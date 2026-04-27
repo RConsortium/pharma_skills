@@ -117,41 +117,39 @@ Text files are also embedded in `_common_task_prompt` under neutral names such a
 Example launcher shape for each side:
 
 ```bash
-cd /tmp/benchmark_{id}/agent_A && cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob" --output-format stream-json | tee agent_A_run.jsonl
-cd /tmp/benchmark_{id}/agent_B && cat prompt_B.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob" --output-format stream-json | tee agent_B_run.jsonl
+cd /tmp/benchmark_{id}/agent_A && cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob" --output-format json | tee agent_A_run.json
+cd /tmp/benchmark_{id}/agent_B && cat prompt_B.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob" --output-format json | tee agent_B_run.json
 ```
 
 `prompt_A.txt` should contain only the skill context plus `_prompt_a`. `prompt_B.txt` should
 contain only `_prompt_b`. The experimental contrast must be skill access, not launcher,
 model, cwd, file naming, or prior-session context.
 
-The `--output-format stream-json` flag emits one JSON object per line covering every event in
-the agent's run: session init, assistant turns, tool calls, tool results, and a final `result`
-record with API-reported token counts. `tee` writes this to `agent_{X}_run.jsonl` while still
-forwarding the stream so the orchestrator can read the response inline.
+The `--output-format json` flag emits a **single JSON object** after the agent finishes,
+containing the final result text, API-reported token counts, duration, and error status.
+Because there is no persistent HTTP stream, this format is not susceptible to stream idle
+timeouts and is the correct choice for benchmark agents that may run for hours.
+`tee` writes this object to `agent_{X}_run.json`.
 
 **When the agents return:**
-- Extract token counts from the JSONL `result` event (more accurate than self-reported values):
+- Extract token counts from the JSON result object:
   ```bash
   python3 - <<'PY'
   import json
-  for path, label in [("agent_A_run.jsonl", "A"), ("agent_B_run.jsonl", "B")]:
-      for line in open(f"/tmp/benchmark_{id}/agent_{label}/{path}"):
-          ev = json.loads(line)
-          if ev.get("type") == "result":
-              u = ev.get("usage", {})
-              total = u.get("input_tokens", 0) + u.get("output_tokens", 0)
-              print(f"tokens_{label}={total}")
-              break
+  for path, label in [("agent_A_run.json", "A"), ("agent_B_run.json", "B")]:
+      ev = json.load(open(f"/tmp/benchmark_{id}/agent_{label}/{path}"))
+      u = ev.get("usage", {})
+      total = u.get("input_tokens", 0) + u.get("output_tokens", 0)
+      print(f"tokens_{label}={total}")
   PY
   ```
-  Fall back to grepping `[USAGE: {n}]` from the plain-text response if the JSONL file is
-  absent or the `result` event has no `usage` field.
+  Fall back to grepping `[USAGE: {n}]` from the `result` field if the JSON file is
+  absent or the `usage` field is missing.
 - Run the recording script to capture duration and tokens:
   ```bash
   python3 _automation/benchmark-runner/scripts/record_run_result.py --eval-id {id} --model {CURRENT_MODEL_NAME} --status completed --tokens-a {tokens_A} --tokens-b {tokens_B}
   ```
-- Note any system errors, tool failures, or retries visible in the JSONL stream.
+- Note any errors reported in the `is_error` field or `result` text of each JSON file.
 
 ---
 
@@ -188,11 +186,11 @@ for the report.
 
 To allow for deep inspection of the results (and support downloading binary files like `.docx` and `.png`):
 
-1. **Package:** Create a zip archive containing both isolated output directories and the JSONL run logs.
+1. **Package:** Create a zip archive containing both isolated output directories and the JSON run logs.
    ```bash
    cd /tmp/benchmark_{id} && zip -r benchmark_results_{eval_id}.zip \
-     agent_A/output_A/ agent_A/agent_A_run.jsonl \
-     agent_B/output_B/ agent_B/agent_B_run.jsonl
+     agent_A/output_A/ agent_A/agent_A_run.json \
+     agent_B/output_B/ agent_B/agent_B_run.json
    ```
 
 2. **Check/create the release (MCP primary):**
@@ -290,20 +288,17 @@ Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using thi
 
 ### Debugging Information
 
-Parse `agent_A_run.jsonl` / `agent_B_run.jsonl` (included in the zip above) for full event
-history. Each line is one JSON event: `system/init`, `assistant`, `tool_use`, `tool_result`,
-or `result`. The `result` line contains API-reported `usage.input_tokens` /
-`usage.output_tokens` and `cost_usd`.
+Inspect `agent_A_run.json` / `agent_B_run.json` (included in the zip above). Each is a single
+JSON object with fields: `type`, `subtype`, `result` (final text), `is_error`, `duration_ms`,
+`num_turns`, `usage` (`input_tokens`, `output_tokens`, `cost_usd`), and `session_id`.
 
 #### Agent A (With Skill)
-- **Total Tool Calls:** {count — `tool_use` events in agent_A_run.jsonl}
-- **Tool Success Rate:** {rate}% — `tool_result` events where `is_error` is false
-- **Errors/Retries:** {any errors or "None"}
+- **Total Turns:** {`num_turns` from agent_A_run.json}
+- **Errors/Retries:** {`is_error` value, or error text in `result` field, or "None"}
 
 #### Agent B (Without Skill)
-- **Total Tool Calls:** {count — `tool_use` events in agent_B_run.jsonl}
-- **Tool Success Rate:** {rate}% — `tool_result` events where `is_error` is false
-- **Errors/Retries:** {any errors or "None"}
+- **Total Turns:** {`num_turns` from agent_B_run.json}
+- **Errors/Retries:** {`is_error` value, or error text in `result` field, or "None"}
 
 ### Detailed Artifacts
 
