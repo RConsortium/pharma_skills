@@ -14,3 +14,9 @@ llms.txt
 _automation/benchmark-runner/runs/runs.json
 
 group-sequential-design/evals/.DS_Store
+
+# clinical-trial-simulation: per-trial run output and rendered HTML
+clinical-trial-simulation/runs/
+clinical-trial-simulation/output/
+clinical-trial-simulation/**/*.html
+clinical-trial-simulation/**/.DS_Store

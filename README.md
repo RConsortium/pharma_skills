@@ -7,6 +7,7 @@ A collection of agent skills for pharmaceutical R&D.
 | Skill | Description |
 |-------|-------------|
 | [group-sequential-design](group-sequential-design/) | Design group sequential clinical trials for survival endpoints (OS, PFS, DFS) with interim analyses, spending functions, multiplicity, and event/enrollment prediction |
+| [clinical-trial-simulation](clinical-trial-simulation/) | Design and simulate clinical trials using the TrialSimulator R package and produce a QC-ready build-order-spine report. Design-agnostic: composes from independent building blocks (endpoints, arms, milestones, regimens) rather than following a fixed catalog of design templates. |
 
 ## Usage
 
