@@ -5,7 +5,7 @@ description: Generate a combined benchmark analysis for the group-sequential-des
 
 # Benchmark Summary Skill
 
-Produce the combined benchmark analysis document for `RConsortium/pharma-skills`. This involves reading benchmark results that live as comments on GitHub issues, selecting the right run for each, and synthesizing them into a structured report following the format defined in `CLAUDE.md`.
+Produce the combined benchmark analysis document for `RConsortium/pharma-skills`. This involves reading benchmark results that live as comments on GitHub issues, selecting the right run for each, and synthesizing them into a structured report.
 
 Repository: `RConsortium/pharma-skills`  
 Output file: `benchmark_analysis_YYYY-MM-DD.md` in the repo root  
@@ -67,43 +67,87 @@ Apply these rules in order to choose one run per issue:
 
 ## Step 4 — Build the three-section document
 
-Follow the exact format specified in `CLAUDE.md` ("Combined Benchmark Summary Format"). Read that section now if not already in context.
+Follow the exact format below for the output document.
+
+### Selection rules
+
+- **One row per benchmark issue.** Use the **latest completed run** for each issue — ignore runs marked partial, timeout, rate-limit hit, or where both agents produced no output.
+- **Do not treat `claude-sonnet-4-7` as a different model** from `claude-sonnet-4-6`; list both simply as "Claude Sonnet". Similarly collapse minor version suffixes (e.g. `claude-opus-4-7` → "Claude Opus").
+- For each issue, record: run date, model, with-skill score (fraction + %), without-skill score, and a one-sentence verdict.
 
 ### Section 1 — Benchmark Summary Table
 
-One row per issue. Columns: Issue, Scenario, Run Date, Model, With Skill (score%), Without Skill (score%), Verdict.
+```markdown
+## Benchmark Summary: Latest Completed Run per Issue (Skill vs No Skill)
 
-- Verdict icon: ✅ skill wins, ❌ no-skill wins, ➕ tie
-- For no-skill wins, parenthetically classify as **skill scope gap** (wrong framework applied) or **orchestration/environment bug** (not a content failure)
-- After the table, add a note listing excluded runs and why
+| Issue | Scenario | Run Date | Model | With Skill | Without Skill | Verdict |
+|-------|----------|----------|-------|-----------|--------------|---------|
+| #N | <short description> | YYYY-MM-DD | <model> | X% (n/d) | Y% (n/d) | ✅/❌/➕ <one sentence> |
+```
+
+Verdict icons: ✅ = skill wins, ❌ = no-skill wins, ➕ = tie.
+
+For no-skill wins, always add a parenthetical explaining whether it is a **skill scope gap** (wrong framework applied) or an **orchestration/environment bug** (not a content failure).
+
+At the bottom of the table, add a note listing any excluded runs and why (partial, timeout, no output).
 
 ### Section 2 — Overall Scorecard
 
-Count wins/ties from the table. Compute average score for each column, excluding issues where the only assertion is a trivial sanity check (e.g. a dry-run confirming a basic statistical fact). Note which issues were excluded from the average and why.
+```markdown
+## Overall Scorecard
 
-Include:
-- Win/tie/loss counts
-- Avg score (with exclusions noted)
-- A table explaining each no-skill win
-- Bullet list of consistent skill strengths drawn from the evidence
+| | With Skill | Without Skill |
+|--|------------|--------------|
+| **Wins** | N | N |
+| **Ties** | N | N |
+| **Avg score (excl. trivial)** | X% | Y% |
+
+**The N no-skill wins are all structural skill gaps, not base model superiority:**
+
+| Issue | No-skill win reason |
+|-------|-------------------|
+| #N | <one line> |
+
+**What the benchmarks confirm the skill does well:**
+- <bullet per consistent value driver>
+```
+
+Exclude issues with a trivial assertion (e.g. a dry-run with a single sanity-check assertion) from the average score calculation; note which issues were excluded.
 
 ### Section 3 — Failure Pattern Analysis
 
-Identify recurring failure modes across issues. For each pattern:
+For each failure pattern, use this template:
 
-- Name it concisely
-- List affected issues and scenarios
-- State the verdict (who won, what the data shows)
-- Describe what specifically went wrong, with evidence from the runs
-- State the root cause (which file is missing the fix: `SKILL.md`, `reference.md`, `examples.md`, `post_design.md`)
-- Propose a concrete fix (which file, what to add, example wording)
-- Assign a priority using this scale:
-  - **P0** — skill produces scientifically invalid output without warning
-  - **P1** — skill silently uses wrong methodology or estimand
-  - **P2** — skill produces correct but sub-optimal design, or execution reliability issue
-  - **P3** — gap partially mitigated by skill; fix closes residual risk
+```markdown
+### Pattern N — <Short name>
 
-Close with a Priority Summary table.
+**Affects:** #N, #N (scenario names)
+**Verdict:** <skill wins / no-skill wins / both fail> — <one sentence on what the data shows>
+
+<Two to four sentences describing what went wrong, with specific evidence from the benchmark runs.>
+
+**Root cause:** <One sentence identifying the specific gap in SKILL.md / reference.md / examples.md / post_design.md.>
+
+**Recommended fix:** <Concrete change — which file, what to add/change, example wording if helpful.>
+
+**Priority:** P0 / P1 / P2 / P3 — <one-line justification>
+```
+
+Priority scale:
+- **P0** — skill produces scientifically invalid or dangerous output for in-scope inputs
+- **P1** — skill silently produces incorrect methodology (wrong framework, wrong estimand)
+- **P2** — skill produces a correct but sub-optimal design, or execution reliability issue
+- **P3** — gap already partially mitigated by skill; fix prevents residual risk
+
+End the section with a **Priority Summary** table:
+
+```markdown
+## Priority Summary
+
+| Pattern | Issues affected | Skill wins? | Priority |
+|---------|----------------|-------------|----------|
+| N. <name> | #N, #N | ✅/❌/Weak | **PN** — <one-line reason> |
+```
 
 Patterns to always check for (add others as evidence warrants):
 - Scope gate missing (skill applies GSD to out-of-scope design)
