@@ -155,6 +155,20 @@ Write a separate verification script that:
 2. **Simulates under H0** (null) — same setup but with HR=1 (both arms have control hazard). Check:
    - Rejection rate ≈ alpha (one-sided)
 
+**Batch strategy — run each scenario as a separate Bash call.** Do NOT combine H1 and H0 simulations (or multiple hypotheses) into a single sequential R script invocation. Each `lrsim()` call with 10,000 reps takes 30–120 seconds depending on design complexity; chaining them in one call risks shell timeout before the last scenario completes. Instead, write one `.R` file per scenario and invoke each independently:
+
+```bash
+Rscript verify_h1.R   # simulates under H1
+Rscript verify_h0.R   # simulates under H0
+# For multi-hypothesis designs, one script per hypothesis per scenario
+Rscript verify_h1_pfs.R
+Rscript verify_h0_pfs.R
+Rscript verify_h1_os.R
+Rscript verify_h0_os.R
+```
+
+Each script should print its results to stdout so you can read them without loading an `.rds` file.
+
 Read `examples.md` → "Verification with lrsim()" for the simulation code.
 
 ### Definition of Done
