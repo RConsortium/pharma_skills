@@ -5,6 +5,9 @@ Read this file after computing the design (step 6) and before delivering outputs
 ## Table of Contents
 
 1. [IA Timing Checks](#ia-timing-checks)
+   - Check 1: IA before enrollment end
+   - Check 2: Data preparation time
+   - Check 3: Late IA — alpha or sample size sub-optimality
 2. [Verification](#verification)
 
 ---
@@ -76,6 +79,52 @@ After event targets are reached, studies typically need **3+ months** for data c
 
 Wait for the user to choose before proceeding. If they choose an adjustment, re-run the design with the updated parameters.
 
+### Check 3: Late first IA relative to enrollment end — alpha or sample size sub-optimality
+
+Compute the gap between IA1 and enrollment end:
+
+```
+late_ia_gap = IA1_calendar_time - enrollment_duration_months
+```
+
+If `late_ia_gap > 9` months, flag a potential design inefficiency. A large gap on the first IA means the study has finished enrolling and patients are simply waiting to have events before any interim look is possible. This often signals that the triggering endpoint's current alpha allocation requires more events than the study can efficiently collect given the enrollment pace.
+
+The two levers that can pull IA1 earlier are:
+
+**Lever 1 — Increase alpha for the IA1-triggering endpoint.** More alpha means a less stringent boundary (lower Z threshold), which requires fewer events to achieve the power target. Fewer required events → IA1 triggered earlier. The alpha must come from somewhere: either reallocate from another endpoint that is over-powered, or accept a lower power target for the donor endpoint.
+
+**Lever 2 — Increase sample size.** More patients → faster event accrual at any given calendar time → IA1 triggered earlier. This lever is independent of the alpha split and does not affect any other endpoint's power.
+
+Present both levers to the user when this check fires:
+
+> "IA1 is estimated at month [X], which is [late_ia_gap] months after enrollment ends at month [Y]. The study has essentially finished enrolling and is waiting for events before the first interim look — this suggests the current design may be inefficient.
+>
+> Two ways to pull IA1 earlier:
+>
+> **Option A — Increase alpha for the IA1-triggering endpoint ([endpoint], currently α = [current_alpha])**
+> Increasing its alpha reduces the number of events needed, moving IA1 earlier. This alpha must come from another endpoint.
+>
+> | Scenario | [endpoint] α | [donor endpoint] α | IA1 events | IA1 timing | [endpoint] power | [donor] power |
+> |---|---|---|---|---|---|---|
+> | Current | [α] | [α_donor] | [events] | Month [X] | [pwr]% | [pwr_donor]% |
+> | +0.005 to [endpoint] | [α+0.005] | [α_donor−0.005] | [recalc] | Month [recalc] | [recalc]% | [recalc]% |
+>
+> **Option B — Increase sample size**
+> More patients accelerate event accrual. Increasing N by ~[suggest increment] would move IA1 approximately [estimate] months earlier, with no change to alpha allocation.
+>
+> **Option C — Accept the current timing**
+> Proceed as-is. The design is statistically valid; the late IA1 is an operational observation, not an error."
+
+Compute the reallocation table and the N sensitivity row before presenting this check. The goal is to give the user concrete numbers, not just abstract options.
+
+Only present this check when ALL of the following hold:
+- `late_ia_gap > 9` months for IA1
+- The IA1-triggering endpoint has initial α > 0 (if α = 0, the endpoint is gated and alpha reallocation requires a different conversation)
+- At least one other endpoint or hypothesis has enough power headroom (> 3 pp above target) to donate alpha
+- The design already passes Checks 1 and 2
+
+This check is advisory — if the user prefers the current design, proceed without changes.
+
 ---
 
 ## Verification
@@ -105,6 +154,20 @@ Write a separate verification script that:
 
 2. **Simulates under H0** (null) — same setup but with HR=1 (both arms have control hazard). Check:
    - Rejection rate ≈ alpha (one-sided)
+
+**Batch strategy — run each scenario as a separate Bash call.** Do NOT combine H1 and H0 simulations (or multiple hypotheses) into a single sequential R script invocation. Each `lrsim()` call with 10,000 reps takes 30–120 seconds depending on design complexity; chaining them in one call risks shell timeout before the last scenario completes. Instead, write one `.R` file per scenario and invoke each independently:
+
+```bash
+Rscript verify_h1.R   # simulates under H1
+Rscript verify_h0.R   # simulates under H0
+# For multi-hypothesis designs, one script per hypothesis per scenario
+Rscript verify_h1_pfs.R
+Rscript verify_h0_pfs.R
+Rscript verify_h1_os.R
+Rscript verify_h0_os.R
+```
+
+Each script should print its results to stdout so you can read them without loading an `.rds` file.
 
 Read `examples.md` → "Verification with lrsim()" for the simulation code.
 

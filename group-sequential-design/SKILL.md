@@ -50,6 +50,40 @@ When you call `Write` for a script, do not also include long reasoning or a para
 
 ---
 
+0. **Scope check — do this before anything else.**
+
+   This skill supports **standard group sequential designs (GSD) for survival endpoints** (OS, PFS, DFS). Before collecting any inputs, assess whether the user's request falls within this scope.
+
+   **In scope — proceed to Step 1:**
+   - Fixed set of hypotheses tested at pre-planned interim and final analyses
+   - Survival endpoints (time-to-event): OS, PFS, DFS, EFS
+   - Single or co-primary endpoints; single or multiple nested populations (subgroup + ITT)
+   - Pre-specified alpha spending, futility boundaries, multiplicity graphs
+   - Non-proportional hazard evaluation as a sensitivity analysis on a fixed GSD
+
+   **Out of scope — stop and explain.** If the user's request matches any of the patterns below, do NOT proceed with the GSD workflow. Instead, reply with the message template at the end of this step.
+
+   | Pattern | Key signals in the user's description |
+   |---------|--------------------------------------|
+   | **Adaptive enrichment** | "enrich to biomarker-positive patients based on interim data", "narrow the population if the subgroup is responding", "population selection at interim", "pick the responders mid-trial" |
+   | **Sample size re-estimation (SSR)** | "increase the sample size based on interim results", "blinded or unblinded SSR", "adaptive sample size", "re-estimate events or N at interim" |
+   | **Dose selection / seamless Phase 2/3** | "select the best dose at interim and continue", "drop losing arms", "pick the winner dose", "seamless adaptive Phase 2/3" |
+   | **Platform / master protocol** | "add or remove treatment arms dynamically", "master protocol", "basket or umbrella trial arm management" |
+   | **Non-survival primary endpoint** | Binary response rate, continuous endpoint, count data as the primary — note: survival co-primaries alongside a binary endpoint are borderline; ask the user to clarify which endpoint drives the GSD |
+   | **Adaptive randomization** | "response-adaptive randomization", "update allocation ratios based on interim data" |
+
+   **How to assess:** Read the user's message and look for the signals above. A design with a biomarker subgroup AND an ITT population tested at fixed analyses is **in scope** (multi-population GSD). A design where the subgroup definition or the set of hypotheses changes based on interim data is **out of scope** (adaptive enrichment). When ambiguous, ask one clarifying question: *"Will the set of populations or hypotheses being tested change based on unblinded interim data?"* — Yes → out of scope; No → in scope.
+
+   **Out-of-scope reply template:**
+
+   > **This request is outside the scope of the group-sequential-design skill.**
+   >
+   > The `group-sequential-design` skill supports standard GSD for survival endpoints with a fixed set of hypotheses, pre-planned analyses, and pre-specified alpha spending. It does not support designs where the trial adapts its structure (populations, arms, sample size, or hypotheses) based on unblinded interim data.
+   >
+   > Your request appears to involve **[name the specific design type, e.g., "adaptive enrichment" / "sample size re-estimation" / "seamless dose-selection"]**, which requires a different statistical framework — typically an inverse-normal combination test, closed testing with combination functions, or a platform trial methodology (tools: `rpact`, `ADDPLAN`, or simulation-based approaches).
+   >
+   > If I've misread your design and it does use a fixed set of hypotheses and pre-planned analyses, please clarify and I'll proceed. Otherwise, I'd suggest consulting a statistician specializing in adaptive designs or referring to FDA/EMA adaptive design guidance documents.
+
 1. **Create output subfolder** — If the user specifies an output directory path (e.g., "write all outputs to /some/path"), use that exact path as `out_dir` and create it. Otherwise, immediately after the user answers Q1 (disease/setting), create `output/gsd_{disease}_{endpoints}_{YYYYMMDD}/` (e.g., `output/gsd_1l_mnsclc_pfs_os_20260327/`). Use a placeholder for `{endpoints}` if not yet known (e.g., `output/gsd_1l_mnsclc_20260327/`), and rename later once endpoints are confirmed. ALL outputs — including any exploratory plots or comparisons generated during the Q&A phase — go in this subfolder.
 2. **Collect inputs** — Ask the questions below, one at a time
 3. **Summarize and confirm** — Present a clean table, get user confirmation. If the prompt states all inputs are confirmed or is an automated run, skip this step and proceed immediately.

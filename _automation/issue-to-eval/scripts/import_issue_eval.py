@@ -161,7 +161,7 @@ def main() -> None:
     try:
         result = subprocess.run(
             ["gh", "issue", "view", issue_id, "--json", "number,body,title"],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, encoding="utf-8", check=True,
         )
     except subprocess.CalledProcessError as e:
         print(f"Error: gh failed fetching issue {issue_id}: {e.stderr}", file=sys.stderr)

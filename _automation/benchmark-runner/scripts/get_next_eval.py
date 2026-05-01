@@ -240,7 +240,7 @@ def build_agent_prompts(eval_case: dict) -> None:
 
         if kind == "text":
             try:
-                content = source_path.read_text()
+                content = source_path.read_text(encoding="utf-8")
             except OSError as e:
                 print(
                     f"Warning: could not read input file {fpath_str}: {e}",
@@ -323,12 +323,12 @@ def write_run_manifest(eval_case: dict, model: str, skill_sha: str, status: str)
     records = []
     if manifest_path.exists():
         try:
-            with open(manifest_path) as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 records = json.load(f)
         except (json.JSONDecodeError, OSError):
             records = []
     records.append(record)
-    with open(manifest_path, "w") as f:
+    with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2)
 
 
@@ -383,7 +383,7 @@ def main() -> None:
 
     for eval_file in sorted(evals_dir.glob("*.json")):
         try:
-            with open(eval_file) as f:
+            with open(eval_file, encoding="utf-8") as f:
                 eval_case = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             print(f"Error reading {eval_file}: {e}", file=sys.stderr)
@@ -412,7 +412,7 @@ def main() -> None:
             eval_case["_skill_sha"] = skill_sha
             eval_case["_skill_dir"] = str(skill_path.relative_to(REPO_ROOT))
 
-            with open(skill_path / "SKILL.md") as s:
+            with open(skill_path / "SKILL.md", encoding="utf-8") as s:
                 eval_case["_skill_content"] = s.read()
 
             # Bundle .md and .py files — exclude evals/ to avoid leaking rubric
@@ -431,7 +431,7 @@ def main() -> None:
                     fpath = root_path / fname
                     rel = str(fpath.relative_to(skill_path))
                     try:
-                        content = fpath.read_text()
+                        content = fpath.read_text(encoding="utf-8")
                     except OSError:
                         continue
                     total_bytes += len(content.encode())

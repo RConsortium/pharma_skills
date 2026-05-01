@@ -103,15 +103,37 @@ Text files are also embedded in `_common_task_prompt` under neutral names such a
 `input_001.csv`; binary files are only staged in `input/`.
 
 **Agent A — WITH the skill:**
-- Start a brand-new `claude -p` session from `/tmp/benchmark_{id}/agent_A`.
-- Use the same explicit model and allowed tools as Agent B.
-- Provide `_skill_content` and `_bundled_resources`, then provide `_prompt_a` exactly as emitted.
-- Do not include the full dispatcher JSON, `_input_files.source`, raw eval file paths, or additional instructions beyond the skill bundle and `_prompt_a`.
+
+1. **Stage bundled resource files to disk** — iterate over `_bundled_resources` (a `{relative_path: content}` dict). For every entry whose key is not `"SKILL.md"`, write the content to `<agent_A_dir>/<relative_path>`, creating subdirectories as needed:
+
+   ```python
+   import os, json
+   agent_a_dir = f"/tmp/benchmark_{id}/agent_A"
+   for rel_path, content in eval_case["_bundled_resources"].items():
+       if rel_path == "SKILL.md":
+           continue
+       dest = os.path.join(agent_a_dir, rel_path)
+       os.makedirs(os.path.dirname(dest), exist_ok=True)
+       with open(dest, "w", encoding="utf-8") as f:
+           f.write(content)
+   ```
+
+   This makes `reference.md`, `examples.md`, `post_design.md`, and any scripts available for the agent to `Read` on demand — exactly as the skill's own progressive-disclosure design intends. It keeps them out of the prompt so they do not consume tokens until needed.
+
+2. **Write `prompt_A.txt`** — include only `_skill_content` (SKILL.md) followed by `_prompt_a`. Do not embed any `_bundled_resources` content in the prompt:
+
+   ```python
+   prompt_a = eval_case["_skill_content"] + "\n\n" + eval_case["_prompt_a"]
+   with open(os.path.join(agent_a_dir, "prompt_A.txt"), "w", encoding="utf-8") as f:
+       f.write(prompt_a)
+   ```
+
+3. **Launch** from `<agent_A_dir>` using the same model and tool allowlist as Agent B. Do not include the full dispatcher JSON, `_input_files.source`, raw eval file paths, or additional instructions.
 
 **Agent B — WITHOUT the skill:**
 - Start a brand-new `claude -p` session from `/tmp/benchmark_{id}/agent_B`.
 - Use the same explicit model and allowed tools as Agent A.
-- Provide `_prompt_b` exactly as emitted.
+- `prompt_B.txt` contains only `_prompt_b`.
 - Do not include `_skill_content`, `_bundled_resources`, skill filenames, package hints, `_input_files.source`, raw eval file paths, or prior conversation context.
 
 Example launcher shape for each side:
@@ -121,9 +143,9 @@ cd /tmp/benchmark_{id}/agent_A && cat prompt_A.txt | claude -p --model "{CURRENT
 cd /tmp/benchmark_{id}/agent_B && cat prompt_B.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob" --output-format json | tee agent_B_run.json
 ```
 
-`prompt_A.txt` should contain only the skill context plus `_prompt_a`. `prompt_B.txt` should
-contain only `_prompt_b`. The experimental contrast must be skill access, not launcher,
-model, cwd, file naming, or prior-session context.
+`prompt_A.txt` contains only `_skill_content` + `_prompt_a`. `prompt_B.txt` contains only `_prompt_b`. The experimental contrast must be skill access, not launcher, model, cwd, file naming, or prior-session context.
+
+**Why file-staging instead of prompt-embedding:** Skills are designed with progressive disclosure — `SKILL.md` is always in context, and supporting files (`reference.md`, `examples.md`, etc.) are read on demand by the agent at the appropriate workflow step. Embedding all files upfront in the prompt bypasses this design, consuming the full token budget before any task work begins and causing rate-limit failures on large skill bundles. Staging files to disk preserves the on-demand loading behaviour while keeping the files accessible in the agent's working directory.
 
 The `--output-format json` flag emits a **single JSON object** after the agent finishes,
 containing the final result text, API-reported token counts, duration, and error status.
