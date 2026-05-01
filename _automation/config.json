@@ -6,6 +6,13 @@
       "priority": "high",
       "benchmark_schedule": "on_change",
       "description": "Design group sequential clinical trials for survival endpoints"
+    },
+    {
+      "name": "clinical-trial-simulation",
+      "dir": "clinical-trial-simulation",
+      "priority": "medium",
+      "benchmark_schedule": "on_change",
+      "description": "Design and simulate clinical trials using the TrialSimulator R package"
     }
   ],
   "defaults": {
