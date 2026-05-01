@@ -7,19 +7,18 @@
     "All four hypotheses have initial assigned alpha  with boundaries computed at the initial assigned alpha",
     "PFS hypotheses (H1, H2) each have exactly 1 boundary (single look)",
     "OS hypotheses (H3, H4) each have 2 boundaries (IA + FA)",
-    "Multiplicity_diagram.png exists and shows 4 hypothesis nodes with actual alpha values. ",
+    "Multiplicity_diagram.png exists and shows 4 hypothesis nodes with actual alpha values.",
     "Transition matrix matches specified weights: H1->H2(1), H2->H4(0.999)+H1(0.001), H4->H2(0.999)+H3(0.001), H3->H4(1), 0.001 can be replaced with a very small number or epsilon",
     "Sample size and study timeline are driven by the subgroup, not the ITT population. Meaning power for PFS and OS in ITT could be over-powered",
-    "IA timing is driven by PFS in the subgroup. ",
+    "IA timing is driven by PFS in the subgroup.",
     "If IA occurs too late after end of enrollment (e.g., > 9 months), a larger initial alpha is suggested for PFS in the subgroup",
     "Total N is at most 700 (N <= 700)",
     "If a hypothesis is overpowered (power >> 90%), skill suggests lowering that endpoint's alpha and reallocating to other endpoints",
-    " Minimum follow-up constraint is met: the IA occurs at least 6 months after enrollment ends, OR the violation is explicitly flagged",
+    "Minimum follow-up constraint is met: the IA occurs at least 6 months after enrollment ends, OR the violation is explicitly flagged",
     "Minimum gap constraint is met: the IA-FA gap is at least 6 months, OR the violation is explicitly flagged",
     "IA/FA gap is evaluated and a second IA is suggested if gap > 18 months",
     "results are verified by simulations"
   ],
-  "language": "R",
   "target_skills": [
     "group-sequential-design"
   ]
