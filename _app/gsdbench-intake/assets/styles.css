@@ -2,6 +2,44 @@
    GSDBench Intake - intellectual minimalism design
    ================================================ */
 
+@font-face {
+  font-display: swap;
+  font-family: "Linden Hill";
+  src: url("fonts/LindenHill-Regular.woff2") format("woff2");
+  font-weight: 400;
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "Linden Hill";
+  src: url("fonts/LindenHill-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-VF.woff2") format("woff2");
+  font-weight: 100 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "IBM Plex Sans";
+  src: url("fonts/IBMPlexSans-Italic-VF.woff2") format("woff2");
+  font-weight: 100 700;
+  font-style: italic;
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "Liga Paper Mono";
+  src: url("fonts/LigaPaperMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+}
+
 :root {
   color-scheme: light;
 
@@ -43,12 +81,9 @@
   --radius: 8px;
   --radius-lg: 12px;
 
-  --font-serif: "Source Serif 4", "Source Serif Pro", "Newsreader", "Iowan Old Style",
-    "Charter", Georgia, "Times New Roman", serif;
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
-    Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
-    "Liberation Mono", monospace;
+  --font-serif: "Linden Hill", "Source Serif Pro", "Newsreader", "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif;
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Liga Paper Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 * {
@@ -80,7 +115,7 @@ h2,
 h3,
 h4 {
   font-family: var(--font-serif);
-  font-weight: 380;
+  font-weight: 400;
   letter-spacing: -0.005em;
   color: var(--ink-strong);
   margin: 0;
@@ -91,7 +126,7 @@ h1 em,
 h2 em,
 h3 em {
   font-style: italic;
-  font-weight: 380;
+  font-weight: 400;
   color: var(--accent-deep);
 }
 
@@ -336,7 +371,7 @@ button.fatal-template {
 
 .form-section>h2 {
   font-size: clamp(1.55rem, 2.6vw, 1.95rem);
-  font-weight: 380;
+  font-weight: 400;
   letter-spacing: -0.014em;
   line-height: 1.15;
   display: flex;
@@ -958,6 +993,7 @@ details[open] summary {
 
 .preview-sticky textarea {
   font-family: var(--font-mono);
+  font-weight: 500;
   font-size: 0.83rem;
   line-height: 1.55;
   background: var(--surface-quiet);
