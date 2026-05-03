@@ -30,10 +30,15 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
+      - name: Stage static app
+        run: |
+          mkdir -p _site
+          cp -R _app/gsdbench-intake/. _site/
+
       - name: Upload static artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: .
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
