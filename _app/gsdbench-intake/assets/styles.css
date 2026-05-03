@@ -126,7 +126,7 @@ h1 em,
 h2 em,
 h3 em {
   font-style: italic;
-  font-weight: 380;
+  font-weight: 400;
   color: var(--accent-deep);
 }
 
@@ -371,7 +371,7 @@ button.fatal-template {
 
 .form-section>h2 {
   font-size: clamp(1.55rem, 2.6vw, 1.95rem);
-  font-weight: 380;
+  font-weight: 400;
   letter-spacing: -0.014em;
   line-height: 1.15;
   display: flex;
