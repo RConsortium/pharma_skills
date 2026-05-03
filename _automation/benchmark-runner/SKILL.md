@@ -5,257 +5,323 @@ description: Auto-discover all skills with evals in RConsortium/pharma-skills, b
 
 # Skill Benchmark Runner
 
-Benchmark every evaluation case in the `_automation/evals/` directory of the `RConsortium/pharma-skills` repository. For each eval case, run two fresh Claude sessions in parallel — one using the skill, one without — score anonymized outputs, then post a scored comparison as a comment on the originating GitHub issue.
+Benchmark every evaluation case in the `_automation/evals/` directory of the `RConsortium/pharma-skills` repository. Each routine invocation is **one of two short phases (~20 min each)**. The routine inspects GitHub issue comments on startup to decide which phase to execute — no configuration needed, no commits required, no repo write access required from the human user.
 
 Repository: `RConsortium/pharma-skills` (https://github.com/RConsortium/pharma-skills)
 
 ---
 
-## Step 0 — R Environment Pre-flight (mandatory, run before Step 1)
+## Routine Setup (one-time)
 
-**Always run this script first, even if you believe R is already installed.**
-It is idempotent — safe to re-run — and will exit non-zero if setup fails,
-at which point you must stop and report the error rather than continuing.
+Create a single routine at [claude.ai/code/routines](https://claude.ai/code/routines):
+
+| Field | Value |
+|---|---|
+| **Prompt** | `Read _automation/benchmark-runner/SKILL.md and execute.` |
+| **Repository** | `RConsortium/pharma-skills` |
+| **Schedule** | `0 6,18 * * *` (6 AM and 6 PM UTC — 12 h apart) |
+
+That is all. The skill determines its own phase on every invocation.
+
+---
+
+## Phase Detection — Run Before Any Other Step
+
+Scan all benchmark eval issues to find any that are waiting for Phase 2 (Agent B + scoring):
+
+1. List all eval files: `ls _automation/evals/*.json` — extract each `id` field (e.g. `github-issue-27` → issue **#27**).
+
+2. For each issue number, call `mcp__github__issue_read` with `method: get_comments` and scan each comment body for a `<!-- BENCHMARK_PARTIAL:` marker:
+
+   ```
+   mcp__github__issue_read:
+     method: get_comments
+     owner:  RConsortium
+     repo:   pharma-skills
+     issue_number: {N}
+   ```
+
+3. Evaluate each comment:
+   - If a comment body contains `<!-- BENCHMARK_PARTIAL:` **and** no later comment on the same issue contains `<!-- BENCHMARK_COMPLETE: {"eval_id":"{same_id}","model":"{same_model}"` → **Phase 2 candidate**. Extract the JSON from the marker (see format below) and note the comment `id`.
+   - A `BENCHMARK_COMPLETE` marker on any later comment means Phase 2 already ran — skip.
+
+4. **Decision:**
+   - One or more Phase 2 candidates found → pick the **oldest** (earliest `created_at`) → **enter Phase 2** with that state.
+   - No Phase 2 candidates → **enter Phase 1**.
+
+**BENCHMARK_PARTIAL marker format** (hidden HTML comment embedded in the issue comment body):
+```
+<!-- BENCHMARK_PARTIAL: {"eval_id":"github-issue-27","model":"claude-sonnet-4-6","skill_sha":"b5ede6a...","issue_number":27,"blinded_map":{"candidate_1":"output_B","candidate_2":"output_A"},"agent_a_asset_url":"https://github.com/RConsortium/pharma-skills/releases/download/benchmark-results/benchmark_agent_a_github-issue-27.zip","run_date":"2026-05-03T06:00Z","tokens_a":199382,"partial_comment_id":4367060533} -->
+```
+
+---
+
+## Phase 1 — Agent A Run (With Skill)
+
+Runs when no Phase 2 candidate is found. Executes Agent A, archives its output, and posts a partial comment that holds state for Phase 2.
+
+### Step 0 — R Environment Pre-flight
+
+**Always run first. Idempotent — safe to re-run.**
 
 ```bash
 bash _automation/benchmark-runner/scripts/setup_r_env.sh
 ```
 
-The script handles everything in one shot:
+Exits non-zero on failure — stop and report the error. Do not proceed.
 
-1. **Installs R** (`r-base`) via `apt` if `R` is not on `PATH`.
-2. **Configures Posit Public Package Manager** for pre-compiled Linux binaries
-   (dramatically faster than building from source).
-3. **Installs and verifies all required R packages:**
+> R packages installed: `jsonlite`, `digest`, `gsDesign`, `gsDesign2`, `lrstat`, `graphicalMCP`, `eventPred`, `ggplot2`
 
-   | Package | Purpose |
-   |---|---|
-   | `jsonlite` | JSON parse/emit in R-based dispatcher helpers |
-   | `digest` | SHA hashing used by deduplication logic |
-   | `gsDesign` | Group sequential boundaries and sample size |
-   | `gsDesign2` | Non-proportional hazards evaluation |
-   | `lrstat` | Log-rank simulation for design verification |
-   | `graphicalMCP` | Maurer-Bretz graphical multiplicity testing |
-   | `eventPred` | Event prediction under non-proportional hazards |
-   | `ggplot2` | Visualisation used in skill outputs |
-
-If the script exits with a non-zero status, **stop here and report the error**.
-Do not proceed to Step 1.
-
-> **Note on R-based automation:** Transient R scripts (e.g. `get_next_eval.R`,
-> `record_run_result.R`) should be written to `/tmp/` rather than `_automation/`
-> to prevent workspace pollution.
-
----
-
-## Step 1 — Get the Next Evaluation Case
-
-Run the dispatcher script to identify the highest-priority pending evaluation:
+### Step 1 — Discover Next Eval
 
 ```bash
 python3 _automation/benchmark-runner/scripts/get_next_eval.py --model {CURRENT_MODEL_NAME}
 ```
 
-By default, the dispatcher uses distributed selection: it hashes the model, a runner id,
-the current UTC minute, the eval id, and the skill SHA to spread different people or
-workers across different pending evals. You can optionally set a stable runner id for each
-person or worker:
+- `STATUS: UP_TO_DATE` → all evals complete for this model+SHA. Exit.
+- JSON output → parse to a temp file; extract `_skill_name`, `_skill_sha`, `_skill_content`, `_bundled_resources`, `_prompt_a`, `_blinded_scoring_map`, and the issue number from `id`.
+
+Optional flags:
+```bash
+--runner-id {YOUR_NAME}           # stable per-person ordering
+--priority-issue github-issue-{N} # force a specific eval
+```
+
+### Step 2 — Run Agent A (With Skill)
+
+Create the working directory:
+
+```bash
+mkdir -p /tmp/benchmark_{id}/agent_A/output_A
+```
+
+**Stage bundled resource files to disk** (progressive disclosure — files read on demand, not embedded in the prompt):
+
+```python
+import os, json
+agent_a_dir = "/tmp/benchmark_{id}/agent_A"
+for rel_path, content in eval_case["_bundled_resources"].items():
+    if rel_path == "SKILL.md":
+        continue
+    dest = os.path.join(agent_a_dir, rel_path)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(content)
+```
+
+**Write `prompt_A.txt`** — `_skill_content` (SKILL.md) followed by `_prompt_a` only. No bundled resource content in the prompt:
+
+```python
+prompt_a = eval_case["_skill_content"] + "\n\n" + eval_case["_prompt_a"]
+with open(os.path.join(agent_a_dir, "prompt_A.txt"), "w", encoding="utf-8") as f:
+    f.write(prompt_a)
+```
+
+**Launch Agent A:**
+
+```bash
+cd /tmp/benchmark_{id}/agent_A && \
+  cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" \
+  --allowedTools "Bash,Read,Write,Edit,Glob" \
+  --output-format json > agent_A_run.json 2>&1
+```
+
+`--output-format json` emits a single JSON object when the agent finishes — resilient to long-running agents and session timeouts.
+
+**When Agent A returns**, extract token count:
+
+```python
+import json
+d = json.load(open("/tmp/benchmark_{id}/agent_A/agent_A_run.json"))
+u = d.get("usage", {})
+tokens_a = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
+is_error_a = d.get("is_error", False)
+```
+
+Record in `runs.json`:
+
+```bash
+python3 _automation/benchmark-runner/scripts/record_run_result.py \
+  --eval-id {id} --model {CURRENT_MODEL_NAME} \
+  --status partial_a --tokens-a {tokens_a}
+```
+
+### Step 3 — Archive Agent A Output
+
+Create the zip:
+
+```bash
+cd /tmp/benchmark_{id} && zip -r benchmark_agent_a_{eval_id}.zip \
+  agent_A/output_A/ agent_A/agent_A_run.json
+```
+
+Upload to the `benchmark-results` GitHub release as a named asset. **The release must already exist** (create it once via the REST API if needed):
+
+```bash
+# Check/create release
+curl -s -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
+  https://api.github.com/repos/RConsortium/pharma-skills/releases/tags/benchmark-results \
+  | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('upload_url','NOT_FOUND'))"
+
+# If NOT_FOUND, create it:
+curl -s -X POST \
+  -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/RConsortium/pharma-skills/releases \
+  -d '{"tag_name":"benchmark-results","name":"Automated Benchmark Results","prerelease":true}'
+
+# Upload asset (strip {?name,label} from upload_url first):
+curl -s -X POST \
+  -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
+  -H "Content-Type: application/zip" \
+  "{upload_url_base}?name=benchmark_agent_a_{eval_id}.zip" \
+  --data-binary @/tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip
+```
+
+Construct the asset download URL:
+```
+https://github.com/RConsortium/pharma-skills/releases/download/benchmark-results/benchmark_agent_a_{eval_id}.zip
+```
+
+If `GH_TOKEN` / `GITHUB_TOKEN` is unavailable, skip the upload and note `agent_a_asset_url: null` in the partial state — Phase 2 will re-run Agent A for that eval.
+
+### Step 4 — Post Partial Comment
+
+Write the partial comment body to `/tmp/partial_comment_{eval_id}.md`:
+
+```markdown
+## Automated Benchmark Results — `{_skill_name}` 🟡 In Progress
+
+### Run Metadata
+
+| Field | Value |
+|---|---|
+| **Eval ID** | `{id}` |
+| **Run date** | {YYYY-MM-DD HH:MM UTC} |
+| **Model** | `claude-sonnet-4-6` |
+| **Skill version** | `{_skill_sha[:7]}` |
+| **Phase** | 1 of 2 complete — Agent A (with skill) finished |
+
+Agent A has completed. Agent B (without skill) will run in the next scheduled window (~12 h).
+Results will be updated here automatically.
+
+<!-- BENCHMARK_PARTIAL: {"eval_id":"{id}","model":"{CURRENT_MODEL_NAME}","skill_sha":"{_skill_sha}","issue_number":{N},"blinded_map":{_blinded_scoring_map},"agent_a_asset_url":"{asset_url}","run_date":"{ISO8601}","tokens_a":{tokens_a}} -->
+```
+
+Post it:
+
+```
+mcp__github__add_issue_comment:
+  owner:        RConsortium
+  repo:         pharma-skills
+  issue_number: {N}
+  body:         <contents of /tmp/partial_comment_{eval_id}.md>
+```
+
+Note the returned comment `id` — it is not needed for Phase 2 (Phase 2 discovers it by scanning), but log it for debugging.
+
+**Phase 1 is complete. Exit.**
+
+---
+
+## Phase 2 — Agent B Run + Scoring
+
+Runs when a `BENCHMARK_PARTIAL` state is found in a GitHub issue comment. Loads Agent A's output, runs Agent B, scores both, posts the full result.
+
+### Step 5 — Load Partial State
+
+Parse the `BENCHMARK_PARTIAL` JSON from the comment body found during Phase Detection:
+
+```python
+import re, json
+marker_re = re.compile(r'<!-- BENCHMARK_PARTIAL: ({.*?}) -->', re.DOTALL)
+m = marker_re.search(comment_body)
+state = json.loads(m.group(1))
+# state keys: eval_id, model, skill_sha, issue_number, blinded_map,
+#             agent_a_asset_url, run_date, tokens_a
+```
+
+Also reload the full eval case (for assertions, scoring prompt, prompt_b):
 
 ```bash
 python3 _automation/benchmark-runner/scripts/get_next_eval.py \
-  --model {CURRENT_MODEL_NAME} \
-  --runner-id {YOUR_NAME_OR_WORKER_ID}
+  --model {state["model"]} \
+  --priority-issue {state["eval_id"]} \
+  > /tmp/eval_case_{id}.json 2>&1
 ```
 
-Use `--selection-salt {YYYY-MM-DDTHH:MMZ}` to reproduce a prior distributed order, or
-`--selection-mode daily` to use the older day-last-digit ordering.
-
-- If the output is `STATUS: UP_TO_DATE`, stop and report that all benchmarks are finished.
-- If the output is a JSON object, parse it. It contains the raw eval fields plus benchmark metadata:
-  `_skill_name`, `_skill_sha`, `_skill_content`, `_bundled_resources`, `_prompt_a`,
-  `_prompt_b`, `_common_task_prompt`, `_input_files`, `_scoring_prompt`, and
-  `_blinded_scoring_map`.
-
----
-
-## Step 2 — Run matched isolated agents in parallel
-
-Run both agents simultaneously in separate working directories. **Record the start time for each agent.**
-Both agents must use the same launcher, explicit model, tool allowlist, and neutralized input file names.
-
-Create the benchmark directories:
+Restore Agent A's output. If `agent_a_asset_url` is set:
 
 ```bash
-mkdir -p /tmp/benchmark_{id}/agent_A/input /tmp/benchmark_{id}/agent_A/output_A
-mkdir -p /tmp/benchmark_{id}/agent_B/input /tmp/benchmark_{id}/agent_B/output_B
+mkdir -p /tmp/benchmark_{id}/agent_A/output_A
+curl -L -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
+  "{agent_a_asset_url}" -o /tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip
+cd /tmp/benchmark_{id} && unzip -q benchmark_agent_a_{eval_id}.zip
 ```
 
-Stage every `_input_files` item into both `input/` directories using only its neutral `alias`.
-The `source` path is for the orchestrator only; do not expose original filenames or repository
-paths to either agent:
+If `agent_a_asset_url` is null (no GH_TOKEN in Phase 1), re-run Agent A from scratch using
+the same procedure as Phase 1 Step 2.
+
+### Step 6 — Run Agent B (Without Skill)
 
 ```bash
-cp {source_1} /tmp/benchmark_{id}/agent_A/input/{alias_1}
-cp {source_1} /tmp/benchmark_{id}/agent_B/input/{alias_1}
+mkdir -p /tmp/benchmark_{id}/agent_B/output_B
 ```
 
-Text files are also embedded in `_common_task_prompt` under neutral names such as
-`input_001.csv`; binary files are only staged in `input/`.
+Write `prompt_B.txt` — contains only `_prompt_b`. No skill content, no resource files:
 
-**Agent A — WITH the skill:**
+```python
+with open("/tmp/benchmark_{id}/agent_B/prompt_B.txt", "w") as f:
+    f.write(eval_case["_prompt_b"])
+```
 
-1. **Stage bundled resource files to disk** — iterate over `_bundled_resources` (a `{relative_path: content}` dict). For every entry whose key is not `"SKILL.md"`, write the content to `<agent_A_dir>/<relative_path>`, creating subdirectories as needed:
-
-   ```python
-   import os, json
-   agent_a_dir = f"/tmp/benchmark_{id}/agent_A"
-   for rel_path, content in eval_case["_bundled_resources"].items():
-       if rel_path == "SKILL.md":
-           continue
-       dest = os.path.join(agent_a_dir, rel_path)
-       os.makedirs(os.path.dirname(dest), exist_ok=True)
-       with open(dest, "w", encoding="utf-8") as f:
-           f.write(content)
-   ```
-
-   This makes `reference.md`, `examples.md`, `post_design.md`, and any scripts available for the agent to `Read` on demand — exactly as the skill's own progressive-disclosure design intends. It keeps them out of the prompt so they do not consume tokens until needed.
-
-2. **Write `prompt_A.txt`** — include only `_skill_content` (SKILL.md) followed by `_prompt_a`. Do not embed any `_bundled_resources` content in the prompt:
-
-   ```python
-   prompt_a = eval_case["_skill_content"] + "\n\n" + eval_case["_prompt_a"]
-   with open(os.path.join(agent_a_dir, "prompt_A.txt"), "w", encoding="utf-8") as f:
-       f.write(prompt_a)
-   ```
-
-3. **Launch** from `<agent_A_dir>` using the same model and tool allowlist as Agent B. Do not include the full dispatcher JSON, `_input_files.source`, raw eval file paths, or additional instructions.
-
-**Agent B — WITHOUT the skill:**
-- Start a brand-new `claude -p` session from `/tmp/benchmark_{id}/agent_B`.
-- Use the same explicit model and allowed tools as Agent A.
-- `prompt_B.txt` contains only `_prompt_b`.
-- Do not include `_skill_content`, `_bundled_resources`, skill filenames, package hints, `_input_files.source`, raw eval file paths, or prior conversation context.
-
-Example launcher shape for each side:
+Launch Agent B:
 
 ```bash
-cd /tmp/benchmark_{id}/agent_A && cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob" --output-format json | tee agent_A_run.json
-cd /tmp/benchmark_{id}/agent_B && cat prompt_B.txt | claude -p --model "{CURRENT_MODEL_NAME}" --allowedTools "Bash,Read,Write,Edit,Glob" --output-format json | tee agent_B_run.json
+cd /tmp/benchmark_{id}/agent_B && \
+  cat prompt_B.txt | claude -p --model "{state['model']}" \
+  --allowedTools "Bash,Read,Write,Edit,Glob" \
+  --output-format json > agent_B_run.json 2>&1
 ```
 
-`prompt_A.txt` contains only `_skill_content` + `_prompt_a`. `prompt_B.txt` contains only `_prompt_b`. The experimental contrast must be skill access, not launcher, model, cwd, file naming, or prior-session context.
+Extract token count and record:
 
-**Why file-staging instead of prompt-embedding:** Skills are designed with progressive disclosure — `SKILL.md` is always in context, and supporting files (`reference.md`, `examples.md`, etc.) are read on demand by the agent at the appropriate workflow step. Embedding all files upfront in the prompt bypasses this design, consuming the full token budget before any task work begins and causing rate-limit failures on large skill bundles. Staging files to disk preserves the on-demand loading behaviour while keeping the files accessible in the agent's working directory.
-
-The `--output-format json` flag emits a **single JSON object** after the agent finishes,
-containing the final result text, API-reported token counts, duration, and error status.
-Because there is no persistent HTTP stream, this format is not susceptible to stream idle
-timeouts and is the correct choice for benchmark agents that may run for hours.
-`tee` writes this object to `agent_{X}_run.json`.
-
-**When the agents return:**
-- Extract token counts from the JSON result object:
-  ```bash
-  python3 - <<'PY'
-  import json
-  for path, label in [("agent_A_run.json", "A"), ("agent_B_run.json", "B")]:
-      ev = json.load(open(f"/tmp/benchmark_{id}/agent_{label}/{path}"))
-      u = ev.get("usage", {})
-      total = u.get("input_tokens", 0) + u.get("output_tokens", 0)
-      print(f"tokens_{label}={total}")
-  PY
-  ```
-  Fall back to grepping `[USAGE: {n}]` from the `result` field if the JSON file is
-  absent or the `usage` field is missing.
-- Run the recording script to capture duration and tokens:
-  ```bash
-  python3 _automation/benchmark-runner/scripts/record_run_result.py --eval-id {id} --model {CURRENT_MODEL_NAME} --status completed --tokens-a {tokens_A} --tokens-b {tokens_B}
-  ```
-- Note any errors reported in the `is_error` field or `result` text of each JSON file.
-
----
-
-## Step 3 — Score blinded outputs against assertions
-
-Before scoring, copy outputs according to `_blinded_scoring_map`:
-
-```text
-candidate_1 -> output_A or output_B
-candidate_2 -> output_A or output_B
+```python
+d = json.load(open("/tmp/benchmark_{id}/agent_B/agent_B_run.json"))
+u = d.get("usage", {})
+tokens_b = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
+is_error_b = d.get("is_error", False)
 ```
 
-Start a fresh scoring session from a directory that contains only `candidate_1/`,
-`candidate_2/`, and `_scoring_prompt`. Do not expose `_blinded_scoring_map`,
-`_skill_content`, `_bundled_resources`, `output_A`, or `output_B` labels to the scorer.
+```bash
+python3 _automation/benchmark-runner/scripts/record_run_result.py \
+  --eval-id {state["eval_id"]} --model {state["model"]} \
+  --status completed --tokens-b {tokens_b}
+```
 
-For each candidate output, evaluate against every assertion in the eval case:
-- Pass — assertion clearly met
-- Fail — assertion clearly not met
-- Partial — partially met
+### Step 7 — Score Blinded Outputs
 
-Score = (passes + 0.5 x partials) / total assertions, as a fraction and percentage.
+Copy outputs per `state["blinded_map"]` to `/tmp/benchmark_{id}/scoring/`:
 
-Retrieve the recorded duration from the most recent entry in `_automation/benchmark-runner/runs/runs.json`.
+```bash
+mkdir -p /tmp/benchmark_{id}/scoring/candidate_1 /tmp/benchmark_{id}/scoring/candidate_2
+# blinded_map: {"candidate_1": "output_B", "candidate_2": "output_A"} (or reversed)
+cp -r /tmp/benchmark_{id}/agent_{X}/output_{X}/. /tmp/benchmark_{id}/scoring/candidate_1/
+cp -r /tmp/benchmark_{id}/agent_{Y}/output_{Y}/. /tmp/benchmark_{id}/scoring/candidate_2/
+```
 
-Identify "Key Metrics" from the assertions (e.g., Sample Size, Power, Error Rates) while
-still blinded. After the scoring table and qualitative notes are finalized, unblind with
-`_blinded_scoring_map` and translate the results back to "With Skill" and "Without Skill"
-for the report.
+For each candidate, evaluate every assertion in the eval case:
+- **Pass** — clearly met
+- **Partial** — partially met
+- **Fail** — not met
 
----
+Score = `(passes + 0.5 × partials) / total_assertions`
 
-## Step 4 — Archive and Upload Detailed Outputs
+Then unblind using `state["blinded_map"]` to map candidate scores back to "With Skill" and "Without Skill".
 
-To allow for deep inspection of the results (and support downloading binary files like `.docx` and `.png`):
+### Step 8 — Format Full Report
 
-1. **Package:** Create a zip archive containing both isolated output directories and the JSON run logs.
-   ```bash
-   cd /tmp/benchmark_{id} && zip -r benchmark_results_{eval_id}.zip \
-     agent_A/output_A/ agent_A/agent_A_run.json \
-     agent_B/output_B/ agent_B/agent_B_run.json
-   ```
-
-2. **Check/create the release (MCP primary):**
-   Use the `mcp__github__get_release_by_tag` tool with `tag = "benchmark-results"` and
-   `owner = "RConsortium"`, `repo = "pharma-skills"`. If the call succeeds, the release
-   already exists — note its `upload_url` for the next step. If it returns an error (release
-   not found), you must create it via the REST API fallback below, as the MCP server does not
-   expose a create-release tool.
-
-   REST API fallback to create the release (requires `GH_TOKEN` or `GITHUB_TOKEN`):
-   ```bash
-   curl -s -X POST \
-     -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
-     -H "Accept: application/vnd.github+json" \
-     https://api.github.com/repos/RConsortium/pharma-skills/releases \
-     -d '{"tag_name":"benchmark-results","name":"Automated Benchmark Results","body":"Rolling release for automated benchmark zip files.","prerelease":true}'
-   ```
-
-3. **Upload the zip as a release asset (REST API):**
-   The MCP server does not expose a release-asset upload endpoint, so use the REST API
-   directly. Replace `{upload_url_base}` with the `upload_url` from step 2 (strip the
-   `{?name,label}` template suffix):
-   ```bash
-   curl -s -X POST \
-     -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
-     -H "Content-Type: application/zip" \
-     "{upload_url_base}?name=benchmark_results_{eval_id}.zip" \
-     --data-binary @/tmp/benchmark_{id}/benchmark_results_{eval_id}.zip
-   ```
-   If neither `GH_TOKEN` nor `GITHUB_TOKEN` is set, skip the upload and include all agent
-   outputs inline in the report instead (see Step 5 artifacts section).
-
-4. **Construct the direct download URL** (whether upload succeeded or not):
-   `https://github.com/RConsortium/pharma-skills/releases/download/benchmark-results/benchmark_results_{eval_id}.zip`
-
-Capture this URL for inclusion in the markdown report. If the upload was skipped, note that
-in the report and include outputs inline.
-
----
-
-## Step 5 — Format the benchmark report (write the Markdown file)
-
-Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using this template:
+Write `/tmp/benchmark_comment_{skill}_{eval_id}.md`:
 
 ```markdown
 ## Automated Benchmark Results — `{_skill_name}`
@@ -266,19 +332,19 @@ Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using thi
 |---|---|
 | **Eval ID** | `{id}` |
 | **Run date** | {YYYY-MM-DD HH:MM UTC} |
-| **Model** | `{model name}` |
-| **Skill version** | `{_skill_sha}` |
-| **Triggered by** | Scheduled/Manual |
+| **Model** | `{model}` |
+| **Skill version** | `{skill_sha[:7]}` |
+| **Triggered by** | Scheduled |
 
 ### Scorecard
 
 | Metric | With Skill | Without Skill |
 |---|---|---|
 | **Score** | {score_A} ({pct_A}%) | {score_B} ({pct_B}%) |
-| **Assertions** | {pass_A} Pass {partial_A} Partial {fail_A} Fail | {pass_B} Pass {partial_B} Partial {fail_B} Fail |
-| **Skills loaded** | {n_skills_A} | {n_skills_B} |
-| **Execution time (min)** | {time_A}m | {time_B}m |
-| **Token usage** | {tokens_A} | {tokens_B} |
+| **Assertions** | {pass_A} Pass · {partial_A} Partial · {fail_A} Fail | {pass_B} Pass · {partial_B} Partial · {fail_B} Fail |
+| **Skills loaded** | 1 | 0 |
+| **Execution time** | {time_A} min | {time_B} min |
+| **Token usage** | {tokens_a} | {tokens_b} |
 | **{Key Metric 1}** | {value_A1} | {value_B1} |
 | **{Key Metric 2}** | {value_A2} | {value_B2} |
 
@@ -297,142 +363,101 @@ Write a Markdown file at `/tmp/benchmark_comment_{skill}_{eval_id}.md` using thi
 <details>
 <summary>View Assertion Breakdown, Code Artifacts, and Logs</summary>
 
-
-
 ### Assertion Breakdown
 
 | Assertion | With Skill | Without Skill |
 |---|---|---|
 | {assertion_text_1} | {Pass/Partial/Fail} | {Pass/Partial/Fail} |
-| {assertion_text_2} | {Pass/Partial/Fail} | {Pass/Partial/Fail} |
-
-
 
 ### Debugging Information
 
-Inspect `agent_A_run.json` / `agent_B_run.json` (included in the zip above). Each is a single
-JSON object with fields: `type`, `subtype`, `result` (final text), `is_error`, `duration_ms`,
-`num_turns`, `usage` (`input_tokens`, `output_tokens`, `cost_usd`), and `session_id`.
-
 #### Agent A (With Skill)
-- **Total Turns:** {`num_turns` from agent_A_run.json}
-- **Errors/Retries:** {`is_error` value, or error text in `result` field, or "None"}
+- **Total Turns:** {num_turns from agent_A_run.json}
+- **Errors/Retries:** {is_error value, or "None"}
 
 #### Agent B (Without Skill)
-- **Total Turns:** {`num_turns` from agent_B_run.json}
-- **Errors/Retries:** {`is_error` value, or error text in `result` field, or "None"}
+- **Total Turns:** {num_turns from agent_B_run.json}
+- **Errors/Retries:** {is_error value, or "None"}
 
 ### Detailed Artifacts
 
-**Detailed Outputs:** [Download Full Benchmark Archive (.zip)]({upload_url})
+**Agent A Output:** [Download Agent A Archive]({agent_a_asset_url})
 
 #### Agent A (With Skill)
-{Repeat for key files like .R, .py, .json}
-**{file_name}**
-```{language}
-{file_content}
-```
+{Key output files — .R, .json, text summaries}
 
 #### Agent B (Without Skill)
-**{file_name}**
-```{language}
-{file_content}
-```
+{Key output files}
 
 </details>
 
 ---
+<!-- BENCHMARK_COMPLETE: {"eval_id":"{id}","model":"{model}","skill_sha":"{skill_sha}"} -->
 *Posted automatically by `benchmark-runner` · Repo: https://github.com/RConsortium/pharma-skills*
 ```
 
----
+Note the `<!-- BENCHMARK_COMPLETE: -->` marker at the bottom — this tells future Phase Detection scans that Phase 2 is done for this eval+model+sha.
 
-## Step 6 — Post to the linked GitHub issue
+### Step 9 — Post Full Results Comment
 
-Extract the issue number from the `id` (e.g., `"github-issue-21"` -> **#21**).
+Post as a **new comment** (no GH_TOKEN PATCH needed):
 
-If a benchmark result for the same model already exists on the issue, **update it** instead
-of creating a new comment. "Same model" is detected by scanning comment bodies for the string
-`"Automated Benchmark Results"` together with the model name (e.g. `claude-sonnet-4-6`).
-
-**Primary — MCP tools (no token required):**
-
-1. Fetch existing comments with `mcp__github__issue_read`:
-   ```
-   method: get_comments
-   owner:  RConsortium
-   repo:   pharma-skills
-   issue_number: {issue_number}
-   ```
-2. Scan the returned comments for one whose `body` contains both
-   `"Automated Benchmark Results"` and `{CURRENT_MODEL_NAME}`.
-   - **Found** — note its `id`, then PATCH it via REST:
-     ```bash
-     curl -s -X PATCH \
-       -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
-       -H "Accept: application/vnd.github+json" \
-       -H "Content-Type: application/json" \
-       https://api.github.com/repos/RConsortium/pharma-skills/issues/comments/{comment_id} \
-       --data-binary @/tmp/benchmark_comment_{skill}_{eval_id}.md \
-       | python3 -c "import json,sys; print(json.load(sys.stdin).get('html_url',''))"
-     ```
-     > Note: `--data-binary` sends raw JSON body. Wrap the file contents in `{"body": "..."}` if using a JSON payload builder.
-   - **Not found** — create a new comment with `mcp__github__add_issue_comment`:
-     ```
-     owner: RConsortium
-     repo:  pharma-skills
-     issue_number: {issue_number}
-     body: <contents of /tmp/benchmark_comment_{skill}_{eval_id}.md>
-     ```
-
-**Fallback — REST API (requires `GH_TOKEN` or `GITHUB_TOKEN`):**
-If the MCP tool is unavailable or returns an error, the Python script handles the full
-upsert automatically:
-```bash
-python3 _automation/benchmark-runner/scripts/post_issue_comment.py {issue_number} \
-  --repo RConsortium/pharma-skills \
-  --body-file /tmp/benchmark_comment_{skill}_{eval_id}.md \
-  --model {CURRENT_MODEL_NAME}
 ```
-Pass `--model` so the script can find and update an existing comment. Without `--model` it
-always creates a new comment.
+mcp__github__add_issue_comment:
+  owner:        RConsortium
+  repo:         pharma-skills
+  issue_number: {state["issue_number"]}
+  body:         <contents of /tmp/benchmark_comment_{skill}_{eval_id}.md>
+```
+
+**Phase 2 is complete. Exit.**
 
 ---
 
 ## Execution Flow
 
 ```
-Run get_next_eval.py (Detects composite skill SHA, model, and file order)
-  |-- If STATUS: UP_TO_DATE -> Exit
-  |-- If JSON ->
-       |-- Agent A (with skill) ---+
-       |-- Agent B (without skill)-+--- run in parallel
-       |-- Score blinded candidates           (Step 3)
-       |-- Archive and upload detailed outputs (Step 4)
-       |-- Format Markdown report              (Step 5)
-       |-- Post comment to GitHub issue #{N}   (Step 6)
+EVERY ROUTINE INVOCATION:
+
+  Phase Detection
+    │
+    ├─ BENCHMARK_PARTIAL found (no BENCHMARK_COMPLETE for same eval+model) ──► Phase 2
+    │     Step 5: load state from comment + restore Agent A output
+    │     Step 6: run Agent B (without skill)
+    │     Step 7: score blinded
+    │     Step 8: format full report
+    │     Step 9: post full results comment (with BENCHMARK_COMPLETE marker)
+    │     EXIT
+    │
+    └─ No partial found ──► Phase 1
+          Step 0: R pre-flight
+          Step 1: get_next_eval.py → if UP_TO_DATE, EXIT
+          Step 2: run Agent A (with skill)
+          Step 3: archive + upload Agent A output
+          Step 4: post partial comment (with BENCHMARK_PARTIAL marker + state JSON)
+          EXIT
 ```
+
+---
 
 ## Notes on Model Name
 
-Pass `--model` using the canonical API model ID (e.g., `gemini-2.0-flash`, `gpt-4o`, `claude-3-7-sonnet`), not the
-display name (e.g., `Claude Sonnet 3.7`). The deduplication logic normalises both sides,
-but using the API ID avoids any ambiguity across runs.
+Pass `--model` using the canonical API model ID (e.g., `claude-sonnet-4-6`), not the display name. The deduplication logic normalises both sides, but using the API ID avoids ambiguity.
 
 ## Notes on Distributed Selection
 
-When several people run the same model, they should set distinct `--runner-id` values
-or `PHARMA_SKILLS_RUNNER_ID` environment variables. The dispatcher uses that id to create
-a stable per-runner ordering of the pending evals for the current UTC minute. If runner ids
-are not available, the minute-level salt still reshuffles the ordering as people start runs
-at different times. This reduces collisions without requiring a central lock. It does not
-eliminate races completely; runners that start in the same minute with the same model and
-same runner id can still pick the same eval. The GitHub issue-comment deduplication prevents
-completed duplicate model/SHA results from being selected on later runs.
+When several people run the same model, set distinct `--runner-id` values. The dispatcher hashes runner-id + model + UTC minute + eval-id + skill-SHA to spread different runners across different pending evals. Runners starting in the same minute may collide; the GitHub issue-comment deduplication (checking for `BENCHMARK_COMPLETE` markers) prevents redundant Phase 1 runs.
+
+## Notes on Rate Limits
+
+If Agent A or Agent B hits a usage rate limit mid-run (`is_error: true`, result contains "You've hit your limit"):
+- **Agent A rate-limited in Phase 1**: record `status: error_a_rate_limited` in `runs.json`, do NOT post a partial comment, exit. The next Phase 1 invocation will retry.
+- **Agent B rate-limited in Phase 2**: record `status: error_b_rate_limited`, do NOT post a full results comment. Leave the `BENCHMARK_PARTIAL` comment in place so the next Phase 2 invocation retries Agent B. Include a note in the partial comment body edit if possible.
 
 ## Success Criteria
 
-- Only one high-priority evaluation is processed per run
-- Deduplication correctly accounts for both Skill SHA and Model Name (normalised)
-- LLM token usage is minimised by offloading discovery to a script
-- Results are posted as comments on the correct GitHub issues using `gh` or the REST fallback
+- One phase executed per invocation (~20 min each)
+- State persists entirely in GitHub issue comments — no commits, no repo write access needed from the human user
+- Blinded scoring: `_blinded_scoring_map` is never visible to the scorer
+- Deduplication: `BENCHMARK_COMPLETE` marker prevents re-running finished evals
+- Results posted on the correct GitHub issue with full assertion breakdown
