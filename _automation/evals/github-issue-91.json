@@ -1,0 +1,20 @@
+{
+  "id": "github-issue-91",
+  "prompt": "Phase 3 two-arm trial for adjuvant renal cell carcinoma. 3:1 (experimental vs. control) enrollment ramp. \nPrimary: DFS, follows an exponential distribution.\nGated secondary: OS, follows an exponential distribution.\nSingle analysis each, both tested for one-sided. Overall two-sided alpha = 0.05.  \nDFS is tested with 250 events, and OS is tested with 430 events. \nHR: 0.70 for DFS, 0.75 for OS\n5-year survival rate in control: 80%\n5-year DFS rate in control: 60%\nTwo endpoints are independent. \nN = 830.",
+  "expected_output": "One output file with\n\n- Rate or median of DFS/OS in both arms\n- Efficacy boundaries (at least nominal p-values or HR boundaries at each look)\n- Multiplicity diagram\n- Power to claim efficacy on DFS and OS\n- Trial duration",
+  "files": [],
+  "assertions": [
+    "Use correct allocation in two arms",
+    "Rates for exponential distribution are correctly derived from 5-year event rates for both endpoints",
+    "DFS is tested at one-sided 0.025, OS is tested at one-sided 0.025 only if DFS is significant",
+    "No alpha split — DFS uses full 0.025, not a fraction",
+    "OS events derived independently with Schoenfeld at full 0.025",
+    "No graphical multiplicity node for OS (zero initial alpha)",
+    "Multiplicity diagram shows H_DFS→H_OS = 1, H_OS→H_DFS = 0 (one-directional)",
+    "Report the probability of claiming efficacy on DFS",
+    "Report the probability of claiming efficacy on OS (defined as both DFS and OS are significant)"
+  ],
+  "target_skills": [
+    "group-sequential-design"
+  ]
+}
