@@ -25,29 +25,39 @@ That is all. The skill determines its own phase on every invocation.
 
 ---
 
+## GitHub Access — Use Whichever Method Works
+
+Throughout this skill you will read issue comments, post issue comments, and create release assets. **Use whatever method is available in your environment** — pick the one that works without prompting:
+
+| Method | Best when | Notes |
+|---|---|---|
+| `mcp__github__*` MCP tools | Running inside Claude Code with the GitHub MCP server | No token required; preferred when available |
+| `gh` CLI (`gh issue view`, `gh release upload`, etc.) | Running locally with `gh` authenticated | Concise, supports all operations |
+| REST API via `curl` | Anywhere with `GH_TOKEN` / `GITHUB_TOKEN` set | Universal fallback; use for release-asset upload (no MCP equivalent) |
+| Provider-specific GitHub tools (Codex, Gemini, etc.) | Running under another agent CLI | Use whatever the host provides |
+
+Reason about which method to use; do not enforce a rigid order. If one fails, try another. Always confirm the operation succeeded (e.g., the comment URL came back, the asset was uploaded) before continuing.
+
+For release-asset upload there is currently no MCP tool — use `gh release upload` or `curl` POST to the upload URL.
+
+---
+
 ## Phase Detection — Run Before Any Other Step
 
-Scan all benchmark eval issues to find any that are waiting for Phase 2 (Agent B + scoring):
+Scan all benchmark eval issues to find any that are waiting for Phase 2 (Agent B + scoring) **for the model you are running**:
 
 1. List all eval files: `ls _automation/evals/*.json` — extract each `id` field (e.g. `github-issue-27` → issue **#27**).
 
-2. For each issue number, call `mcp__github__issue_read` with `method: get_comments` and scan each comment body for a `<!-- BENCHMARK_PARTIAL:` marker:
+2. For each issue number, fetch comments using whichever GitHub access method is available (see above). Scan each comment body for a `<!-- BENCHMARK_PARTIAL:` marker.
 
-   ```
-   mcp__github__issue_read:
-     method: get_comments
-     owner:  RConsortium
-     repo:   pharma-skills
-     issue_number: {N}
-   ```
-
-3. Evaluate each comment:
-   - If a comment body contains `<!-- BENCHMARK_PARTIAL:` **and** no later comment on the same issue contains `<!-- BENCHMARK_COMPLETE: {"eval_id":"{same_id}","model":"{same_model}"` → **Phase 2 candidate**. Extract the JSON from the marker (see format below) and note the comment `id`.
-   - A `BENCHMARK_COMPLETE` marker on any later comment means Phase 2 already ran — skip.
+3. Filter and evaluate each `BENCHMARK_PARTIAL` marker found:
+   - **Skip if `state.model` does not match `{CURRENT_MODEL_NAME}`.** This is critical: a partial run by another user on a different model belongs to that user. Only pick up partials matching your current model.
+   - Skip if a later comment on the same issue contains a matching `<!-- BENCHMARK_COMPLETE: {"eval_id":"{same}","model":"{same}"` — Phase 2 already finished for that combination.
+   - Otherwise → **Phase 2 candidate**. Extract the JSON from the marker (see format below) and note the partial comment `id`.
 
 4. **Decision:**
    - One or more Phase 2 candidates found → pick the **oldest** (earliest `created_at`) → **enter Phase 2** with that state.
-   - No Phase 2 candidates → **enter Phase 1**.
+   - No candidates for your model → **enter Phase 1**.
 
 **BENCHMARK_PARTIAL marker format** (hidden HTML comment embedded in the issue comment body):
 ```
@@ -155,35 +165,29 @@ cd /tmp/benchmark_{id} && zip -r benchmark_agent_a_{eval_id}.zip \
   agent_A/output_A/ agent_A/agent_A_run.json
 ```
 
-Upload to the `benchmark-results` GitHub release as a named asset. **The release must already exist** (create it once via the REST API if needed):
+Upload to the `benchmark-results` GitHub release as a named asset. **The release must already exist** (create it once if needed). Use whichever method works in your environment — examples below; pick what works:
 
-```bash
-# Check/create release
-curl -s -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
-  https://api.github.com/repos/RConsortium/pharma-skills/releases/tags/benchmark-results \
-  | python3 -c "import json,sys; r=json.load(sys.stdin); print(r.get('upload_url','NOT_FOUND'))"
+- **`gh` CLI** (simplest if available):
+  ```bash
+  gh release view benchmark-results --repo RConsortium/pharma-skills \
+    || gh release create benchmark-results --repo RConsortium/pharma-skills \
+       --prerelease --title "Automated Benchmark Results" --notes "Rolling release."
+  gh release upload benchmark-results /tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip \
+    --repo RConsortium/pharma-skills --clobber
+  ```
+- **REST API via `curl`** (when only `GH_TOKEN` is available):
+  ```bash
+  # Get-or-create release, then POST to its upload_url with the zip as data-binary.
+  # See https://docs.github.com/en/rest/releases for the exact endpoints.
+  ```
+- **MCP** does not currently expose a release-asset upload tool — use `gh` or `curl` for the upload step. Comment posting and reading can still use MCP.
 
-# If NOT_FOUND, create it:
-curl -s -X POST \
-  -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
-  -H "Accept: application/vnd.github+json" \
-  https://api.github.com/repos/RConsortium/pharma-skills/releases \
-  -d '{"tag_name":"benchmark-results","name":"Automated Benchmark Results","prerelease":true}'
-
-# Upload asset (strip {?name,label} from upload_url first):
-curl -s -X POST \
-  -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
-  -H "Content-Type: application/zip" \
-  "{upload_url_base}?name=benchmark_agent_a_{eval_id}.zip" \
-  --data-binary @/tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip
-```
-
-Construct the asset download URL:
+Construct the asset download URL (used in the partial comment state):
 ```
 https://github.com/RConsortium/pharma-skills/releases/download/benchmark-results/benchmark_agent_a_{eval_id}.zip
 ```
 
-If `GH_TOKEN` / `GITHUB_TOKEN` is unavailable, skip the upload and note `agent_a_asset_url: null` in the partial state — Phase 2 will re-run Agent A for that eval.
+**If no upload method works** (no `gh`, no token), skip the upload and set `agent_a_asset_url: null` in the partial state. Phase 2 will detect the null URL and re-run Agent A for that eval — wasteful but correct.
 
 ### Step 4 — Post Partial Comment
 
@@ -208,19 +212,26 @@ Results will be updated here automatically.
 <!-- BENCHMARK_PARTIAL: {"eval_id":"{id}","model":"{CURRENT_MODEL_NAME}","skill_sha":"{_skill_sha}","issue_number":{N},"blinded_map":{_blinded_scoring_map},"agent_a_asset_url":"{asset_url}","run_date":"{ISO8601}","tokens_a":{tokens_a}} -->
 ```
 
-Post it:
+Post it using whichever GitHub access method is available (see "GitHub Access" above). The partial comment `id` returned by the API is not needed for Phase 2 (Phase 2 discovers it by scanning), but log it for debugging.
+
+**Phase 1 is complete.** Print this summary to the user before exiting:
 
 ```
-mcp__github__add_issue_comment:
-  owner:        RConsortium
-  repo:         pharma-skills
-  issue_number: {N}
-  body:         <contents of /tmp/partial_comment_{eval_id}.md>
+✓ Phase 1 complete — Agent A finished for {eval_id} ({model})
+  • Output archived: {asset_url}
+  • Partial comment: {comment_url}
+  • Tokens used: {tokens_a:,}
+
+NEXT STEP — Phase 2 (Agent B + scoring):
+  • If running as a scheduled routine: nothing to do. The next scheduled
+    invocation (≥5 h from now, after the rolling usage window resets) will
+    detect this partial state automatically and run Phase 2.
+  • If running manually: re-invoke this skill any time. It will
+    detect the BENCHMARK_PARTIAL marker on issue #{N} and run Phase 2 to
+    completion.
 ```
 
-Note the returned comment `id` — it is not needed for Phase 2 (Phase 2 discovers it by scanning), but log it for debugging.
-
-**Phase 1 is complete. Exit.**
+Then exit cleanly.
 
 ---
 
@@ -250,17 +261,23 @@ python3 _automation/benchmark-runner/scripts/get_next_eval.py \
   > /tmp/eval_case_{id}.json 2>&1
 ```
 
-Restore Agent A's output. If `agent_a_asset_url` is set:
+Restore Agent A's output. If `agent_a_asset_url` is set, download and unzip it. Use whichever method works:
 
 ```bash
 mkdir -p /tmp/benchmark_{id}/agent_A/output_A
-curl -L -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" \
-  "{agent_a_asset_url}" -o /tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip
+
+# Option A — gh CLI:
+gh release download benchmark-results --repo RConsortium/pharma-skills \
+  --pattern "benchmark_agent_a_{eval_id}.zip" --dir /tmp/benchmark_{id}/
+
+# Option B — curl (release assets are public for public repos; token only needed for private):
+curl -L "{agent_a_asset_url}" -o /tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip
+
+# Then unzip:
 cd /tmp/benchmark_{id} && unzip -q benchmark_agent_a_{eval_id}.zip
 ```
 
-If `agent_a_asset_url` is null (no GH_TOKEN in Phase 1), re-run Agent A from scratch using
-the same procedure as Phase 1 Step 2.
+If `agent_a_asset_url` is `null` (Phase 1 could not upload), re-run Agent A from scratch using the same procedure as Phase 1 Step 2 before continuing.
 
 ### Step 6 — Run Agent B (Without Skill)
 
@@ -400,17 +417,20 @@ Note the `<!-- BENCHMARK_COMPLETE: -->` marker at the bottom — this tells futu
 
 ### Step 9 — Post Full Results Comment
 
-Post as a **new comment** (no GH_TOKEN PATCH needed):
+Post as a **new comment** using whichever GitHub access method is available (see "GitHub Access" above). The new comment carries the `BENCHMARK_COMPLETE` marker; the partial comment can stay in place — future Phase Detection scans will see the COMPLETE marker on a later comment and skip the partial.
+
+If you prefer to also edit the partial comment to mark it as superseded (cleaner timeline), use whatever update method works in your environment (`gh api` PATCH, REST PATCH with `GH_TOKEN`, etc.). Optional — not required for correctness.
+
+**Phase 2 is complete.** Print this summary to the user before exiting:
 
 ```
-mcp__github__add_issue_comment:
-  owner:        RConsortium
-  repo:         pharma-skills
-  issue_number: {state["issue_number"]}
-  body:         <contents of /tmp/benchmark_comment_{skill}_{eval_id}.md>
+✓ Phase 2 complete — full benchmark posted for {eval_id} ({model})
+  • Score: With Skill {pct_A}% · Without Skill {pct_B}%
+  • Comment: {comment_url}
+  • Tokens — A: {tokens_a:,} · B: {tokens_b:,}
 ```
 
-**Phase 2 is complete. Exit.**
+Then exit cleanly.
 
 ---
 
