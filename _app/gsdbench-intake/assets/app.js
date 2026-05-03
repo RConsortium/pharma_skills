@@ -288,29 +288,7 @@
   }
 
   function buildIssueJson(data) {
-    return {
-      schema_version: data.schema_version,
-      case_id: data.case_id,
-      short_title: data.short_title,
-      submission_type: data.submission_type,
-      created_from: data.created_from,
-      contributor: {
-        github_username: data.contributor.github_username,
-        role: data.contributor.role,
-        organization_type: data.contributor.organization_type
-      },
-      governance: {
-        source_type: data.governance.source_type,
-        no_phi_or_confidential_info_confirmed: data.governance.no_phi_or_confidential_info_confirmed,
-        permission_or_deidentification_confirmed: data.governance.permission_or_deidentification_confirmed
-      },
-      benchmark_metadata: data.benchmark_metadata,
-      task: data.task,
-      trial_design: data.trial_design,
-      reference_truth: data.reference_truth,
-      rubric: data.rubric,
-      review: data.review
-    };
+    return JSON.parse(JSON.stringify(data));
   }
 
   function generateIssueBody(data) {
@@ -384,6 +362,7 @@
       `- [${data.governance.permission_or_deidentification_confirmed ? "x" : " "}] Permission to share publicly, or sufficiently generalized/de-identified.`,
       `- [${data.governance.maintainer_revision_understood ? "x" : " "}] Maintainers may request revisions before accepting this case.`,
       bullet("Source type", data.governance.source_type),
+      bullet("Contributor name or initials", data.contributor.name_or_initials),
       bullet("Contributor GitHub username", data.contributor.github_username),
       bullet("Contributor role", data.contributor.role),
       bullet("Organization type", data.contributor.organization_type)

@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '_app/gsdbench-intake/**'
+      - '_app/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -33,7 +33,7 @@ jobs:
       - name: Stage static app
         run: |
           mkdir -p _site
-          cp -R _app/gsdbench-intake/. _site/
+          cp -R _app/. _site/
 
       - name: Upload static artifact
         uses: actions/upload-pages-artifact@v5
