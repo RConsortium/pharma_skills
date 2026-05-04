@@ -62,6 +62,35 @@ The accepted GitHub issue is the canonical benchmark record. The intake app is
 the standard preparation tool, but acceptance is determined through maintainer
 review.
 
+## AI-assisted form filling from a draft case
+
+Some contributors may first draft a benchmark case in free-text form, including
+cases drafted with help from an AI assistant. This is an acceptable workflow,
+provided the final GitHub issue still passes through the GSDBench Intake
+structure and the contributor verifies the content before submission.
+
+In practice, a contributor can:
+
+1.  Draft the benchmark case locally in Markdown or plain text.
+2.  Ask an AI coding agent or browser-capable assistant to open the GSDBench
+    Intake app.
+3.  Use agentic browser automation (such as
+    [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp),
+    [Codex browser use](https://developers.openai.com/codex/app/browser),
+    [Claude Code Chrome integration](https://code.claude.com/docs/en/chrome))
+    to fill the intake form based on the draft.
+4.  Conduct human review of all populated fields.
+5.  Resolve validation warnings (if any).
+6.  Copy the generated issue title and body into a GitHub issue.
+
+This workflow can reduce manual data entry while conforming to the structured
+intake format. The contributor remains responsible for confirming scientific
+accuracy, public-sharing safety, rubric quality, and the absence of confidential
+or patient-identifiable information.
+
+AI-assisted drafting or form filling does not replace maintainer review.
+The accepted GitHub issue remains the authoritative benchmark case record.
+
 ## One benchmark case per issue
 
 Each GitHub issue should describe exactly one benchmark case.
