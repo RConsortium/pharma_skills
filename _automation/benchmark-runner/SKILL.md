@@ -462,7 +462,8 @@ EVERY ROUTINE INVOCATION:
 
 ## Notes on Model Name
 
-Pass `--model` using the canonical API model ID (e.g., `claude-sonnet-4-6`), not the display name. The deduplication logic normalises both sides, but using the API ID avoids ambiguity.
+Pass `--model` using the canonical API model ID (e.g., `claude-sonnet-4-6` or `gemini-3.1-pro-preview`), not the display name. The deduplication logic normalises both sides, but using the API ID avoids ambiguity.
+* **For Gemini CLI:** Read the **Runtime Context** block injected into your system prompt to find the `Active Model` (e.g., `gemini-3-pro-preview`) if you don't already know it.
 
 ## Notes on Distributed Selection
 
