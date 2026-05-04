@@ -72,13 +72,16 @@ structure and the contributor verifies the content before submission.
 In practice, a contributor can:
 
 1.  Draft the benchmark case locally in Markdown or plain text.
-2.  Ask an AI coding agent or browser-capable assistant to open the GSDBench
-    Intake app.
+2.  Before sharing any draft with an AI coding agent or browser-capable
+    assistant, redact or sanitize confidential, proprietary, and
+    patient-identifiable information; for non-public information, prefer a
+    local or on-device agent where feasible. Then ask the agent to open the
+    GSDBench Intake app.
 3.  Use agentic browser automation (such as
     [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp),
     [Codex browser use](https://developers.openai.com/codex/app/browser),
     [Claude Code Chrome integration](https://code.claude.com/docs/en/chrome))
-    to fill the intake form based on the draft.
+    to fill the intake form based on the sanitized draft.
 4.  Conduct human review of all populated fields.
 5.  Resolve validation warnings (if any).
 6.  Copy the generated issue title and body into a GitHub issue.
