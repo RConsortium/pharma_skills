@@ -472,8 +472,7 @@ def main() -> None:
 
     write_run_manifest(selected_eval, args.model, selected_eval["_skill_sha"], "dispatched")
     print(json.dumps(selected_eval, indent=2))
-
-    print("STATUS: UP_TO_DATE")
+    return
 
 
 if __name__ == "__main__":

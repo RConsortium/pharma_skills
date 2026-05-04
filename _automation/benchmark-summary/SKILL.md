@@ -8,7 +8,7 @@ description: Generate a combined benchmark analysis for the group-sequential-des
 Produce the combined benchmark analysis document for `RConsortium/pharma-skills`. This involves reading benchmark results that live as comments on GitHub issues, selecting the right run for each, and synthesizing them into a structured report.
 
 Repository: `RConsortium/pharma-skills`  
-Output file: `benchmark_analysis_YYYY-MM-DD.md` in the repo root  
+Output file: `benchmark_analysis_YYYY-MM-DD.md` in the writable repo root  
 GitHub issue: post to `RConsortium/pharma-skills` after saving locally
 
 ---
@@ -167,7 +167,7 @@ Patterns to always check for (add others as evidence warrants):
 benchmark_analysis_YYYY-MM-DD.md
 ```
 
-in the repo root (`C:/Users/zhangp/pharma-skills/pharma-skills/` on this machine). Use today's date.
+in the repo root of the current checkout. If the repo root is not writable in the active sandbox, stop and report that constraint instead of writing elsewhere. Use today's date.
 
 **Post to GitHub** (requires user confirmation before posting):
 

@@ -31,7 +31,7 @@ When the conversation gets long and context is compressed, preserve information 
 
 ## Workflow
 
-**Task Progress Tracking:** At the start of step 6 (after user confirms inputs), create a task checklist using `TaskCreate` for all remaining steps. Mark each task `in_progress` when starting and `completed` when done. Typical tasks:
+**Task Progress Tracking:** At the start of step 6 (after user confirms inputs), create a task checklist using the host CLI's native task/progress tool if one exists; otherwise keep a simple textual checklist in your working notes. Mark each task `in_progress` when starting and `completed` when done. Typical tasks:
 1. Write and run R design script (gsd_design.R)
 2. Check IA timing constraints
 3. Run verification simulation (gsd_verification.R)
@@ -46,7 +46,7 @@ This gives the user a visual progress indicator (spinner → checkmark) througho
 - Running the verification
 - Writing the report
 
-When you call `Write` for a script, do not also include long reasoning or a parallel `Bash` execution in the same turn. Save explanations for the final report. This keeps each assistant turn well under the output token cap and avoids truncation.
+When you create a script file, do not also include long reasoning or a parallel shell execution in the same turn. Save explanations for the final report. This keeps each assistant turn well under the output token cap and avoids truncation.
 
 ---
 
@@ -84,7 +84,7 @@ When you call `Write` for a script, do not also include long reasoning or a para
    >
    > If I've misread your design and it does use a fixed set of hypotheses and pre-planned analyses, please clarify and I'll proceed. Otherwise, I'd suggest consulting a statistician specializing in adaptive designs or referring to FDA/EMA adaptive design guidance documents.
 
-1. **Create output subfolder** — If the user specifies an output directory path (e.g., "write all outputs to /some/path"), use that exact path as `out_dir` and create it. Otherwise, immediately after the user answers Q1 (disease/setting), create `output/gsd_{disease}_{endpoints}_{YYYYMMDD}/` (e.g., `output/gsd_1l_mnsclc_pfs_os_20260327/`). Use a placeholder for `{endpoints}` if not yet known (e.g., `output/gsd_1l_mnsclc_20260327/`), and rename later once endpoints are confirmed. ALL outputs — including any exploratory plots or comparisons generated during the Q&A phase — go in this subfolder.
+1. **Create output subfolder** — If the user specifies an output directory path (e.g., "write all outputs to /some/path"), use that exact path as `out_dir` only if it is writable in the current sandbox. Otherwise, place the run under a writable workspace-local directory. By default, immediately after the user answers Q1 (disease/setting), create `output/gsd_{disease}_{endpoints}_{YYYYMMDD}/` (e.g., `output/gsd_1l_mnsclc_pfs_os_20260327/`). Use a placeholder for `{endpoints}` if not yet known (e.g., `output/gsd_1l_mnsclc_20260327/`), and rename later once endpoints are confirmed. ALL outputs — including any exploratory plots or comparisons generated during the Q&A phase — go in this subfolder.
 2. **Collect inputs** — Ask the questions below, one at a time
 3. **Summarize and confirm** — Present a clean table, get user confirmation. If the prompt states all inputs are confirmed or is an automated run, skip this step and proceed immediately.
 4. **Read `reference.md`** — Review design guidance, key rules, and failure modes

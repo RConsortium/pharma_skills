@@ -4,13 +4,57 @@
 # Exits non-zero on any failure so the caller can stop early.
 set -euo pipefail
 
+can_run_elevated() {
+  if [ "$(id -u)" -eq 0 ]; then
+    return 0
+  fi
+  command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1
+}
+
+run_elevated() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+choose_writable_r_lib() {
+  local candidate
+  for candidate in \
+    "${PHARMA_SKILLS_R_LIB:-}" \
+    "${R_LIBS_USER:-}" \
+    "${PWD}/.cache/pharma_r_lib" \
+    "${TMPDIR:-/tmp}/pharma_r_lib" \
+    "/private/tmp/pharma_r_lib"
+  do
+    [ -n "${candidate}" ] || continue
+    if mkdir -p "${candidate}" 2>/dev/null && [ -w "${candidate}" ]; then
+      export R_LIBS_USER="${candidate}"
+      echo "[setup] Using writable R library: ${R_LIBS_USER}"
+      return 0
+    fi
+  done
+
+  echo "[setup] ERROR: could not find a writable R package library. Set PHARMA_SKILLS_R_LIB or R_LIBS_USER." >&2
+  exit 1
+}
+
+choose_writable_r_lib
+
 # ---------------------------------------------------------------------------
 # 1. Install R base if not present
 # ---------------------------------------------------------------------------
 if ! command -v R &>/dev/null; then
-  echo "[setup] R not found — installing r-base..."
-  sudo apt-get update -qq
-  sudo apt-get install -y r-base
+  if command -v apt-get &>/dev/null && can_run_elevated; then
+    echo "[setup] R not found — installing r-base via apt-get..."
+    run_elevated apt-get update -qq
+    run_elevated apt-get install -y r-base
+  else
+    echo "[setup] ERROR: R is not installed and this environment cannot install it automatically." >&2
+    echo "[setup] Install R manually or run in an environment with apt-get + sudo/root." >&2
+    exit 1
+  fi
 fi
 
 R_VERSION=$(R --version | head -1 | awk '{print $3}')
@@ -21,19 +65,23 @@ echo "[setup] R ${R_VERSION} available."
 #    Doing this up front via apt is faster than letting pak discover them at
 #    install time, and avoids restarting the R session mid-install.
 # ---------------------------------------------------------------------------
-echo "[setup] Installing system build dependencies..."
-sudo apt-get install -y --no-install-recommends \
-  libcurl4-openssl-dev \
-  libssl-dev \
-  libxml2-dev \
-  libfontconfig1-dev \
-  libfreetype-dev \
-  libharfbuzz-dev \
-  libfribidi-dev \
-  libpng-dev \
-  libjpeg-dev \
-  libuv1-dev \
-  2>/dev/null || echo "[setup] Some system packages failed — continuing."
+if command -v apt-get &>/dev/null && can_run_elevated; then
+  echo "[setup] Installing system build dependencies..."
+  run_elevated apt-get install -y --no-install-recommends \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    libfontconfig1-dev \
+    libfreetype-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libuv1-dev \
+    2>/dev/null || echo "[setup] Some system packages failed — continuing."
+else
+  echo "[setup] Skipping apt system dependencies — apt-get or sudo/root unavailable."
+fi
 
 # ---------------------------------------------------------------------------
 # 3. Pin CRAN to a known IP to prevent DNS cache overflow errors.
@@ -43,11 +91,15 @@ sudo apt-get install -y --no-install-recommends \
 echo "[setup] Pinning CRAN hostname to bypass DNS cache overflow..."
 pin_host() {
   local domain="$1"
+  if [ ! -w /etc/hosts ] && ! can_run_elevated; then
+    echo "[setup] Skipping /etc/hosts pin for ${domain} — no write access."
+    return 0
+  fi
   if ! grep -q "${domain}" /etc/hosts 2>/dev/null; then
     local ip
     ip=$(curl -s --max-time 10 -w "%{remote_ip}" -o /dev/null "https://${domain}" 2>/dev/null || true)
     if [ -n "${ip}" ]; then
-      echo "${ip} ${domain}" | sudo tee -a /etc/hosts > /dev/null
+      printf '%s %s\n' "${ip}" "${domain}" | run_elevated tee -a /etc/hosts > /dev/null
       echo "[setup] Pinned ${domain} -> ${ip}"
     else
       echo "[setup] Warning: could not resolve ${domain} — skipping pin."

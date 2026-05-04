@@ -58,7 +58,9 @@ Ask your agent:
 
 ## Requirements
 - **GitHub access**: Use authenticated `gh`, or set `GH_TOKEN`/`GITHUB_TOKEN` for the REST fallback scripts. The token must be able to read issues and write issue comments.
-- **Claude CLI**: Required for launching matched fresh `claude -p` sessions with an explicit model.
+- **Agent CLI**: Use a non-interactive provider CLI that can run in a writable sandbox (`claude -p`, `codex exec`, or `gemini -p`).
+- **Codex note**: If you use `codex exec`, the child Codex process needs outbound network access and a writable `CODEX_HOME`. A managed parent session with `CODEX_SANDBOX_NETWORK_DISABLED=1` will block benchmark execution.
+- **Writable scratch space**: Set `PHARMA_SKILLS_BENCH_ROOT` and `R_LIBS_USER` when the host sandbox does not permit `/tmp` or the default R library path.
 
 ## License
 MIT

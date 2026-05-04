@@ -40,9 +40,10 @@ If using a cloud CLI platform (like claude.ai/code, or equivalent Gemini/OpenAI 
   #!/bin/bash
   bash _automation/benchmark-runner/scripts/setup_r_env.sh
   ```
-  The script handles everything: installs R, system build libraries, pins CRAN to a
-  stable IP to avoid DNS failures, bootstraps `pak`, and installs all required packages
-  in parallel using pre-compiled binaries where available.
+  The script handles everything it can inside the active sandbox: installs R and
+  system build libraries when `apt-get` plus `sudo`/root are available, otherwise
+  reuses an existing R installation, bootstraps `pak`, and installs all required
+  packages into a writable user or temp library.
 
 ### 2. Create the routine
 
@@ -71,5 +72,6 @@ Click **Run now** on the routine detail page and confirm that R package installa
 
 - **R is not pre-installed** in cloud sessions. The setup script above handles this; do not skip it.
 - The setup script output is **cached** by Anthropic, so R and the pre-installed packages are available instantly on subsequent runs without reinstalling.
-- Environment variables (e.g. `GH_TOKEN`, `GITHUB_TOKEN`, `PHARMA_SKILLS_RUNNER_ID`, `PHARMA_SKILLS_SLACK_CHANNEL`) are set in the environment config, not in `.claude/settings.json`. `GH_TOKEN` or `GITHUB_TOKEN` enables the benchmark runner's REST fallback when `gh` is unavailable. `PHARMA_SKILLS_RUNNER_ID` should be unique per person or scheduled worker to spread benchmark jobs across runners.
+- Environment variables (e.g. `GH_TOKEN`, `GITHUB_TOKEN`, `PHARMA_SKILLS_RUNNER_ID`, `PHARMA_SKILLS_SLACK_CHANNEL`, `PHARMA_SKILLS_BENCH_ROOT`, `PHARMA_SKILLS_R_LIB`) are set in the environment config, not in `.claude/settings.json`. `GH_TOKEN` or `GITHUB_TOKEN` enables the benchmark runner's REST fallback when `gh` is unavailable. `PHARMA_SKILLS_RUNNER_ID` should be unique per person or scheduled worker to spread benchmark jobs across runners.
 - The `.claude/settings.json` `permissions.allow` rules in this repo (e.g. `Bash(Rscript:*)`) apply to local CLI sessions only and have no effect on routine network access.
+- For **Codex** specifically, nested `codex exec` calls inherit the shell sandbox. If the parent session disables shell network access or provides a read-only `CODEX_HOME`, benchmark runs must be launched from a normal terminal session instead of from inside that managed sandbox.

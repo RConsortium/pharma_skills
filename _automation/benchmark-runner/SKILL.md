@@ -11,17 +11,13 @@ Repository: `RConsortium/pharma-skills` (https://github.com/RConsortium/pharma-s
 
 ---
 
-## Routine Setup (one-time)
+## Routine Setup (optional)
 
-Create a single routine at [claude.ai/code/routines](https://claude.ai/code/routines):
+You can run this skill manually or from any scheduled host that can open the repository and invoke a provider CLI. The routine/job prompt should be:
 
-| Field | Value |
-|---|---|
-| **Prompt** | `Read _automation/benchmark-runner/SKILL.md and execute.` |
-| **Repository** | `RConsortium/pharma-skills` |
-| **Schedule** | `0 1,6 * * *` (1 AM and 6 AM UTC — 5 h gap, matches rolling usage window) |
+`Read _automation/benchmark-runner/SKILL.md and execute.`
 
-That is all. The skill determines its own phase on every invocation.
+Recommended schedule for recurring runs: `0 1,6 * * *` (1 AM and 6 AM UTC — 5 h gap, matches the rolling usage window). The skill determines its own phase on every invocation.
 
 ---
 
@@ -39,6 +35,29 @@ Throughout this skill you will read issue comments, post issue comments, and cre
 Reason about which method to use; do not enforce a rigid order. If one fails, try another. Always confirm the operation succeeded (e.g., the comment URL came back, the asset was uploaded) before continuing.
 
 For release-asset upload there is currently no MCP tool — use `gh release upload` or `curl` POST to the upload URL.
+
+---
+
+## Sandbox + Runtime Rules
+
+Assume you are running inside a sandboxed agent CLI unless proven otherwise.
+
+1. **Only write inside a writable workspace or temp directory.** Never hardcode `/tmp` or another system path without checking it is writable first.
+2. **Prefer repo-local scratch space when sandbox rules are unclear.** Use:
+   ```bash
+   export PHARMA_SKILLS_BENCH_ROOT="${PHARMA_SKILLS_BENCH_ROOT:-${TMPDIR:-$PWD/.benchmark-work}}"
+   mkdir -p "${PHARMA_SKILLS_BENCH_ROOT}"
+   ```
+3. **Use a writable R package library.** If `R_LIBS_USER` is unset, set it to a writable directory before running the R bootstrap:
+   ```bash
+   export R_LIBS_USER="${R_LIBS_USER:-${PHARMA_SKILLS_R_LIB:-${PHARMA_SKILLS_BENCH_ROOT}/r_lib}}"
+   mkdir -p "${R_LIBS_USER}"
+   ```
+4. **Do not assume `sudo`, `apt-get`, or `/etc/hosts` are available.** The setup script now degrades gracefully; if R is already installed, continue.
+5. **Use the provider's native non-interactive CLI.** Do not force `claude -p` syntax onto Codex or Gemini.
+6. **Record the exact model ID you actually launched.** For Codex this is the `-m/--model` value or configured default. For Gemini use the active model shown by the CLI/runtime context. For Claude use the `--model` value.
+7. **If a provider does not expose token usage in its non-interactive output, leave token counts blank rather than inventing them.**
+8. **Codex-specific requirement:** a shell-launched `codex exec` needs outbound network access plus a writable `CODEX_HOME`. If the host session sets `CODEX_SANDBOX_NETWORK_DISABLED=1` or the child process cannot create session files under `CODEX_HOME`, stop and report the environment constraint instead of retrying blindly.
 
 ---
 
@@ -75,7 +94,8 @@ Runs when no Phase 2 candidate is found. Executes Agent A, archives its output, 
 **Always run first. Idempotent — safe to re-run.**
 
 ```bash
-bash _automation/benchmark-runner/scripts/setup_r_env.sh
+env R_LIBS_USER="${R_LIBS_USER:-${PHARMA_SKILLS_R_LIB:-${PHARMA_SKILLS_BENCH_ROOT:-${TMPDIR:-$PWD/.benchmark-work}}/r_lib}}" \
+  bash _automation/benchmark-runner/scripts/setup_r_env.sh
 ```
 
 Exits non-zero on failure — stop and report the error. Do not proceed.
@@ -102,14 +122,15 @@ Optional flags:
 Create the working directory:
 
 ```bash
-mkdir -p /tmp/benchmark_{id}/agent_A/output_A
+export BENCH_DIR="${PHARMA_SKILLS_BENCH_ROOT}/benchmark_{id}"
+mkdir -p "${BENCH_DIR}/agent_A/output_A"
 ```
 
 **Stage bundled resource files to disk** (progressive disclosure — files read on demand, not embedded in the prompt):
 
 ```python
 import os, json
-agent_a_dir = "/tmp/benchmark_{id}/agent_A"
+agent_a_dir = os.path.join(os.environ["BENCH_DIR"], "agent_A")
 for rel_path, content in eval_case["_bundled_resources"].items():
     if rel_path == "SKILL.md":
         continue
@@ -127,42 +148,75 @@ with open(os.path.join(agent_a_dir, "prompt_A.txt"), "w", encoding="utf-8") as f
     f.write(prompt_a)
 ```
 
-**Launch Agent A:**
+**Launch Agent A with the native CLI for your host.** Use one of these patterns:
 
-```bash
-cd /tmp/benchmark_{id}/agent_A && \
-  cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" \
-  --allowedTools "Bash,Read,Write,Edit,Glob" \
-  --output-format json > agent_A_run.json 2>&1
-```
+- **Claude Code**
+  ```bash
+  cd "${BENCH_DIR}/agent_A" && \
+    cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" \
+    --add-dir "${BENCH_DIR}/agent_A" \
+    --permission-mode acceptEdits \
+    --output-format json > agent_A_run.json 2>&1
+  ```
+- **Codex CLI**
+  ```bash
+  export BENCH_CODEX_HOME="${BENCH_DIR}/codex-home"
+  mkdir -p "${BENCH_CODEX_HOME}"
+  cd "${BENCH_DIR}/agent_A" && \
+    CODEX_HOME="${BENCH_CODEX_HOME}" \
+    codex --ask-for-approval never exec --cd "${BENCH_DIR}/agent_A" \
+    --skip-git-repo-check \
+    --ephemeral \
+    --sandbox workspace-write \
+    --add-dir "${BENCH_DIR}/agent_A" \
+    -m "{CURRENT_MODEL_NAME}" \
+    --json \
+    -o agent_A_last.txt - < prompt_A.txt > agent_A_run.jsonl 2>&1
+  ```
+- **Gemini CLI**
+  ```bash
+  cd "${BENCH_DIR}/agent_A" && \
+    gemini --sandbox --yolo --skip-trust \
+    --include-directories "${BENCH_DIR}/agent_A" \
+    -m "{CURRENT_MODEL_NAME}" \
+    -p "$(cat prompt_A.txt)" \
+    -o json > agent_A_run.json 2>&1
+  ```
 
-`--output-format json` emits a single JSON object when the agent finishes — resilient to long-running agents and session timeouts.
+Preserve the raw runner log exactly as emitted (`agent_A_run.json` or `agent_A_run.jsonl`).
 
-**When Agent A returns**, extract token count:
+**When Agent A returns**, extract token count only if the log format exposes usage:
 
 ```python
-import json
-d = json.load(open("/tmp/benchmark_{id}/agent_A/agent_A_run.json"))
-u = d.get("usage", {})
-tokens_a = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
-is_error_a = d.get("is_error", False)
+import json, os
+tokens_a = None
+is_error_a = False
+json_path = os.path.join(agent_a_dir, "agent_A_run.json")
+if os.path.exists(json_path):
+    d = json.load(open(json_path))
+    u = d.get("usage", {})
+    tokens_a = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
+    is_error_a = d.get("is_error", False)
 ```
+
+For JSONL/event-stream logs (for example `codex exec --json`), keep the full log file. If usage is not available, leave `tokens_a = None`.
 
 Record in `runs.json`:
 
 ```bash
 python3 _automation/benchmark-runner/scripts/record_run_result.py \
   --eval-id {id} --model {CURRENT_MODEL_NAME} \
-  --status partial_a --tokens-a {tokens_a}
+  --status partial_a
 ```
+
+If `tokens_a` is available, append `--tokens-a {tokens_a}`.
 
 ### Step 3 — Archive Agent A Output
 
 Create the zip:
 
 ```bash
-cd /tmp/benchmark_{id} && zip -r benchmark_agent_a_{eval_id}.zip \
-  agent_A/output_A/ agent_A/agent_A_run.json
+cd "${BENCH_DIR}" && zip -r benchmark_agent_a_{eval_id}.zip agent_A/
 ```
 
 Upload to the `benchmark-results` GitHub release as a named asset. **The release must already exist** (create it once if needed). Use whichever method works in your environment — examples below; pick what works:
@@ -172,7 +226,7 @@ Upload to the `benchmark-results` GitHub release as a named asset. **The release
   gh release view benchmark-results --repo RConsortium/pharma-skills \
     || gh release create benchmark-results --repo RConsortium/pharma-skills \
        --prerelease --title "Automated Benchmark Results" --notes "Rolling release."
-  gh release upload benchmark-results /tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip \
+  gh release upload benchmark-results "${BENCH_DIR}/benchmark_agent_a_{eval_id}.zip" \
     --repo RConsortium/pharma-skills --clobber
   ```
 - **REST API via `curl`** (when only `GH_TOKEN` is available):
@@ -191,7 +245,7 @@ https://github.com/RConsortium/pharma-skills/releases/download/benchmark-results
 
 ### Step 4 — Post Partial Comment
 
-Write the partial comment body to `/tmp/partial_comment_{eval_id}.md`:
+Write the partial comment body to `${BENCH_DIR}/partial_comment_{eval_id}.md`:
 
 ```markdown
 ## Automated Benchmark Results — `{_skill_name}` 🟡 In Progress
@@ -202,14 +256,14 @@ Write the partial comment body to `/tmp/partial_comment_{eval_id}.md`:
 |---|---|
 | **Eval ID** | `{id}` |
 | **Run date** | {YYYY-MM-DD HH:MM UTC} |
-| **Model** | `claude-sonnet-4-6` |
+| **Model** | `{CURRENT_MODEL_NAME}` |
 | **Skill version** | `{_skill_sha[:7]}` |
 | **Phase** | 1 of 2 complete — Agent A (with skill) finished |
 
 Agent A has completed. Agent B (without skill) will run in the next scheduled window (~5 h).
 Results will be updated here automatically.
 
-<!-- BENCHMARK_PARTIAL: {"eval_id":"{id}","model":"{CURRENT_MODEL_NAME}","skill_sha":"{_skill_sha}","issue_number":{N},"blinded_map":{_blinded_scoring_map},"agent_a_asset_url":"{asset_url}","run_date":"{ISO8601}","tokens_a":{tokens_a}} -->
+<!-- BENCHMARK_PARTIAL: {"eval_id":"{id}","model":"{CURRENT_MODEL_NAME}","skill_sha":"{_skill_sha}","issue_number":{N},"blinded_map":{_blinded_scoring_map},"agent_a_asset_url":"{asset_url}","run_date":"{ISO8601}","tokens_a":{tokens_a_or_null}} -->
 ```
 
 Post it using whichever GitHub access method is available (see "GitHub Access" above). The partial comment `id` returned by the API is not needed for Phase 2 (Phase 2 discovers it by scanning), but log it for debugging.
@@ -220,7 +274,7 @@ Post it using whichever GitHub access method is available (see "GitHub Access" a
 ✓ Phase 1 complete — Agent A finished for {eval_id} ({model})
   • Output archived: {asset_url}
   • Partial comment: {comment_url}
-  • Tokens used: {tokens_a:,}
+  • Tokens used: {tokens_a_or_na}
 
 NEXT STEP — Phase 2 (Agent B + scoring):
   • If running as a scheduled routine: nothing to do. The next scheduled
@@ -241,6 +295,13 @@ Runs when a `BENCHMARK_PARTIAL` state is found in a GitHub issue comment. Loads 
 
 ### Step 5 — Load Partial State
 
+Recreate the benchmark working directory for this eval:
+
+```bash
+export BENCH_DIR="${PHARMA_SKILLS_BENCH_ROOT}/benchmark_{state['eval_id']}"
+mkdir -p "${BENCH_DIR}"
+```
+
 Parse the `BENCHMARK_PARTIAL` JSON from the comment body found during Phase Detection:
 
 ```python
@@ -258,23 +319,23 @@ Also reload the full eval case (for assertions, scoring prompt, prompt_b):
 python3 _automation/benchmark-runner/scripts/get_next_eval.py \
   --model {state["model"]} \
   --priority-issue {state["eval_id"]} \
-  > /tmp/eval_case_{id}.json 2>&1
+  > "${BENCH_DIR}/eval_case_{state['eval_id']}.json" 2>&1
 ```
 
 Restore Agent A's output. If `agent_a_asset_url` is set, download and unzip it. Use whichever method works:
 
 ```bash
-mkdir -p /tmp/benchmark_{id}/agent_A/output_A
+mkdir -p "${BENCH_DIR}/agent_A/output_A"
 
 # Option A — gh CLI:
 gh release download benchmark-results --repo RConsortium/pharma-skills \
-  --pattern "benchmark_agent_a_{eval_id}.zip" --dir /tmp/benchmark_{id}/
+  --pattern "benchmark_agent_a_{eval_id}.zip" --dir "${BENCH_DIR}"
 
 # Option B — curl (release assets are public for public repos; token only needed for private):
-curl -L "{agent_a_asset_url}" -o /tmp/benchmark_{id}/benchmark_agent_a_{eval_id}.zip
+curl -L "{agent_a_asset_url}" -o "${BENCH_DIR}/benchmark_agent_a_{eval_id}.zip"
 
 # Then unzip:
-cd /tmp/benchmark_{id} && unzip -q benchmark_agent_a_{eval_id}.zip
+cd "${BENCH_DIR}" && unzip -q benchmark_agent_a_{eval_id}.zip
 ```
 
 If `agent_a_asset_url` is `null` (Phase 1 could not upload), re-run Agent A from scratch using the same procedure as Phase 1 Step 2 before continuing.
@@ -282,49 +343,82 @@ If `agent_a_asset_url` is `null` (Phase 1 could not upload), re-run Agent A from
 ### Step 6 — Run Agent B (Without Skill)
 
 ```bash
-mkdir -p /tmp/benchmark_{id}/agent_B/output_B
+mkdir -p "${BENCH_DIR}/agent_B/output_B"
 ```
 
 Write `prompt_B.txt` — contains only `_prompt_b`. No skill content, no resource files:
 
 ```python
-with open("/tmp/benchmark_{id}/agent_B/prompt_B.txt", "w") as f:
+with open(os.path.join(os.environ["BENCH_DIR"], "agent_B", "prompt_B.txt"), "w") as f:
     f.write(eval_case["_prompt_b"])
 ```
 
-Launch Agent B:
+Launch Agent B with the same provider family and sandbox mode as Agent A, but without the skill bundle in the prompt:
 
-```bash
-cd /tmp/benchmark_{id}/agent_B && \
-  cat prompt_B.txt | claude -p --model "{state['model']}" \
-  --allowedTools "Bash,Read,Write,Edit,Glob" \
-  --output-format json > agent_B_run.json 2>&1
-```
+- **Claude Code**
+  ```bash
+  cd "${BENCH_DIR}/agent_B" && \
+    cat prompt_B.txt | claude -p --model "{state['model']}" \
+    --add-dir "${BENCH_DIR}/agent_B" \
+    --permission-mode acceptEdits \
+    --output-format json > agent_B_run.json 2>&1
+  ```
+- **Codex CLI**
+  ```bash
+  export BENCH_CODEX_HOME="${BENCH_DIR}/codex-home"
+  mkdir -p "${BENCH_CODEX_HOME}"
+  cd "${BENCH_DIR}/agent_B" && \
+    CODEX_HOME="${BENCH_CODEX_HOME}" \
+    codex --ask-for-approval never exec --cd "${BENCH_DIR}/agent_B" \
+    --skip-git-repo-check \
+    --ephemeral \
+    --sandbox workspace-write \
+    --add-dir "${BENCH_DIR}/agent_B" \
+    -m "{state['model']}" \
+    --json \
+    -o agent_B_last.txt - < prompt_B.txt > agent_B_run.jsonl 2>&1
+  ```
+- **Gemini CLI**
+  ```bash
+  cd "${BENCH_DIR}/agent_B" && \
+    gemini --sandbox --yolo --skip-trust \
+    --include-directories "${BENCH_DIR}/agent_B" \
+    -m "{state['model']}" \
+    -p "$(cat prompt_B.txt)" \
+    -o json > agent_B_run.json 2>&1
+  ```
 
-Extract token count and record:
+Extract token count only when the runner output exposes usage:
 
 ```python
-d = json.load(open("/tmp/benchmark_{id}/agent_B/agent_B_run.json"))
-u = d.get("usage", {})
-tokens_b = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
-is_error_b = d.get("is_error", False)
+import json, os
+tokens_b = None
+is_error_b = False
+json_path = os.path.join(os.environ["BENCH_DIR"], "agent_B", "agent_B_run.json")
+if os.path.exists(json_path):
+    d = json.load(open(json_path))
+    u = d.get("usage", {})
+    tokens_b = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
+    is_error_b = d.get("is_error", False)
 ```
 
 ```bash
 python3 _automation/benchmark-runner/scripts/record_run_result.py \
   --eval-id {state["eval_id"]} --model {state["model"]} \
-  --status completed --tokens-b {tokens_b}
+  --status completed
 ```
+
+If `tokens_b` is available, append `--tokens-b {tokens_b}`.
 
 ### Step 7 — Score Blinded Outputs
 
-Copy outputs per `state["blinded_map"]` to `/tmp/benchmark_{id}/scoring/`:
+Copy outputs per `state["blinded_map"]` to `${BENCH_DIR}/scoring/`:
 
 ```bash
-mkdir -p /tmp/benchmark_{id}/scoring/candidate_1 /tmp/benchmark_{id}/scoring/candidate_2
+mkdir -p "${BENCH_DIR}/scoring/candidate_1" "${BENCH_DIR}/scoring/candidate_2"
 # blinded_map: {"candidate_1": "output_B", "candidate_2": "output_A"} (or reversed)
-cp -r /tmp/benchmark_{id}/agent_{X}/output_{X}/. /tmp/benchmark_{id}/scoring/candidate_1/
-cp -r /tmp/benchmark_{id}/agent_{Y}/output_{Y}/. /tmp/benchmark_{id}/scoring/candidate_2/
+cp -r "${BENCH_DIR}/agent_{X}/output_{X}/." "${BENCH_DIR}/scoring/candidate_1/"
+cp -r "${BENCH_DIR}/agent_{Y}/output_{Y}/." "${BENCH_DIR}/scoring/candidate_2/"
 ```
 
 For each candidate, evaluate every assertion in the eval case:
@@ -338,7 +432,7 @@ Then unblind using `state["blinded_map"]` to map candidate scores back to "With 
 
 ### Step 8 — Format Full Report
 
-Write `/tmp/benchmark_comment_{skill}_{eval_id}.md`:
+Write `${BENCH_DIR}/benchmark_comment_{skill}_{eval_id}.md`:
 
 ```markdown
 ## Automated Benchmark Results — `{_skill_name}`
@@ -361,7 +455,7 @@ Write `/tmp/benchmark_comment_{skill}_{eval_id}.md`:
 | **Assertions** | {pass_A} Pass · {partial_A} Partial · {fail_A} Fail | {pass_B} Pass · {partial_B} Partial · {fail_B} Fail |
 | **Skills loaded** | 1 | 0 |
 | **Execution time** | {time_A} min | {time_B} min |
-| **Token usage** | {tokens_a} | {tokens_b} |
+| **Token usage** | {tokens_a_or_na} | {tokens_b_or_na} |
 | **{Key Metric 1}** | {value_A1} | {value_B1} |
 | **{Key Metric 2}** | {value_A2} | {value_B2} |
 
@@ -427,7 +521,7 @@ If you prefer to also edit the partial comment to mark it as superseded (cleaner
 ✓ Phase 2 complete — full benchmark posted for {eval_id} ({model})
   • Score: With Skill {pct_A}% · Without Skill {pct_B}%
   • Comment: {comment_url}
-  • Tokens — A: {tokens_a:,} · B: {tokens_b:,}
+  • Tokens — A: {tokens_a_or_na} · B: {tokens_b_or_na}
 ```
 
 Then exit cleanly.

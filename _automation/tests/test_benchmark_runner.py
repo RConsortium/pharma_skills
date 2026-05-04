@@ -5,6 +5,7 @@ Uses unittest.mock to avoid any real git/gh/network calls.
 """
 
 import json
+import io
 import sys
 import unittest
 from datetime import datetime, timezone
@@ -277,6 +278,50 @@ class TestWriteRunManifest(unittest.TestCase):
                 self.assertEqual(len(records), 2)
             finally:
                 gne.RUNS_DIR = original_runs_dir
+
+
+class TestMainOutputContract(unittest.TestCase):
+    @patch("get_next_eval.check_github_comments", return_value=False)
+    def test_successful_selection_prints_json_only(self, _mock_check):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            evals_dir = repo_root / "_automation" / "evals"
+            skill_dir = repo_root / "my-skill"
+            runs_dir = repo_root / "_automation" / "benchmark-runner" / "runs"
+            evals_dir.mkdir(parents=True)
+            skill_dir.mkdir(parents=True)
+            runs_dir.mkdir(parents=True)
+
+            (skill_dir / "SKILL.md").write_text("skill body")
+            (evals_dir / "github-issue-21.json").write_text(json.dumps({
+                "id": "github-issue-21",
+                "target_skills": ["my-skill"],
+                "prompt": "Do the thing",
+                "expected_output": "",
+                "assertions": [],
+            }))
+
+            original_repo_root = gne.REPO_ROOT
+            original_runs_dir = gne.RUNS_DIR
+            original_argv = sys.argv
+            stdout = io.StringIO()
+
+            try:
+                gne.REPO_ROOT = repo_root
+                gne.RUNS_DIR = runs_dir
+                sys.argv = ["get_next_eval.py", "--model", "gpt-5"]
+                with patch("sys.stdout", stdout):
+                    gne.main()
+            finally:
+                gne.REPO_ROOT = original_repo_root
+                gne.RUNS_DIR = original_runs_dir
+                sys.argv = original_argv
+
+            output = stdout.getvalue()
+            self.assertIn('"id": "github-issue-21"', output)
+            self.assertNotIn("STATUS: UP_TO_DATE", output)
 
 
 if __name__ == "__main__":

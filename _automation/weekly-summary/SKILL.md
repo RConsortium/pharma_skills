@@ -42,5 +42,5 @@ If neither is set, **stop and report an error** — do not guess a channel ID.
    - Post the summary to Slack using an available webhook or chat integration tool.
 
 4. **File Output**
-   - Save the summary as a markdown file: `/sessions/[session-dir]/mnt/outputs/pharma-skills-weekly-summary-[YYYY-MM-DD].md`.
+   - Save the summary as a markdown file in a writable directory for the current sandbox. Prefer the repo root or a repo-local `output/` directory, for example: `output/pharma-skills-weekly-summary-[YYYY-MM-DD].md`.
    - Present or output the path to the saved file so the user can review it.
