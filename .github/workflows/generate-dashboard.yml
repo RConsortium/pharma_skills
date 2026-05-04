@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -25,7 +25,7 @@ jobs:
           python3 _automation/benchmark-runner/scripts/generate_dashboard.py
 
       - name: Commit updated dashboard
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore: regenerate benchmark dashboard [skip ci]"
           file_pattern: "_automation/benchmark-runner/DASHBOARD.md"
