@@ -3,7 +3,11 @@ open https://github.com/codespaces and create a codespace under main from pharma
 
 ![alt text](image/image.png)
 
-Then you will see clouds-based VS code. While selecting 2 core, you can use 60 hours per month
+Then you will see clouds-based VS code. While selecting 2 core, you can use 60 hours per month.
+
+Select the main branch. As you have notified that a folder of .devcontainer/ is created. This pre-build the environment with R and required R packages. This will help save the session time from Claude Code.
+
+We previously experience a hard time in Claude Code in Claude.ai for routine, where it didnt perform as expected (not starting up, installation failed, etc.)
 
 ## 2. Download Claude Code onto this machine
 
@@ -26,8 +30,9 @@ Note that we are in the sandbox mode and can utilize this mode to enable agent t
 ```
 claude --dangerously-skip-permissions
 ```
+Then login your claude account
 
-### Below as to do, not finished
+
 ## Prompt 
 
 ```
@@ -35,3 +40,5 @@ Read the skill instructions from the file at the path below, then execute them e
 File: ./_automation/benchmark-runner-codespaces/SKILL.md
 
 ```
+
+Your task is, by reading "./_automation/benchmark-runner-codespaces/SKILL.md", complete the task, and find corresponding delayed process of installating R environment, and parallel agent A and B tasks. Known issues including too many replicated turns in each tasks, and also always recognize old github issues instead of new github issues. Please propose solutions under this structure after you complete. I might expect this whole flow to be completed within 30 minutes. If you  experience longer, please stop, help digest and propose improvment
