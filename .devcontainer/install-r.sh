@@ -48,7 +48,22 @@ echo "deb [signed-by=/etc/apt/keyrings/cran-r.gpg] https://cloud.r-project.org/b
   | sudo tee /etc/apt/sources.list.d/cran-r.list > /dev/null
 
 sudo apt-get update -qq
-sudo apt-get install -y --no-install-recommends r-base r-base-dev
+# r-base + system deps that R packages with C/C++ extensions need at install time.
+# libuv1-dev is required by the `fs` package (which is a transitive dep of fs ->
+# sass -> bslib -> rmarkdown -> ... -> gsDesign etc.). Without it the install
+# of `fs` fails and cascades to ~13 other packages.
+sudo apt-get install -y --no-install-recommends \
+  r-base r-base-dev \
+  libuv1-dev \
+  libxml2-dev \
+  libfontconfig1-dev \
+  libfreetype6-dev \
+  libharfbuzz-dev \
+  libfribidi-dev \
+  libpng-dev \
+  libjpeg-dev \
+  libtiff5-dev \
+  libcairo2-dev
 
 R --version | head -1
 echo "[install-r] R installation complete."

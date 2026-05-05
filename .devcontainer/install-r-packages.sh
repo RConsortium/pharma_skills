@@ -32,7 +32,18 @@ R_PKGS=$(printf '"%s",' "${REQUIRED_PKGS[@]}")
 R_PKGS="c(${R_PKGS%,})"
 
 Rscript --no-save -e "
-options(repos = c(CRAN = '${PPM_URL}'))
+# PPM serves source packages by default and only delivers pre-compiled binaries
+# when the HTTP User-Agent identifies the OS distribution. Without this, every
+# package recompiles from source — turning a ~3 min install into ~20 min. See
+# https://docs.posit.co/rspm/admin/serving-binaries.html
+options(
+  repos          = c(CRAN = '${PPM_URL}'),
+  HTTPUserAgent  = sprintf(
+    'R/%s R (%s)',
+    getRversion(),
+    paste(getRversion(), R.version\$platform, R.version\$arch, R.version\$os)
+  )
+)
 lib <- Sys.getenv('R_LIBS_USER')
 .libPaths(c(lib, .libPaths()))
 pkgs <- ${R_PKGS}
