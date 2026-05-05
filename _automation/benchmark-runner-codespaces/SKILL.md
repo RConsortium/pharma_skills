@@ -157,15 +157,22 @@ with open(os.path.join(agent_a_dir, "prompt_A.txt"), "w", encoding="utf-8") as f
 
 ```bash
 cd /tmp/benchmark_{id}/agent_A && \
-  CLAUDE_CODE_MAX_OUTPUT_TOKENS=$MAX_OUT_TOKENS_A \
-  cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" \
+  cat prompt_A.txt | CLAUDE_CODE_MAX_OUTPUT_TOKENS=$MAX_OUT_TOKENS_A claude -p --model "{CURRENT_MODEL_NAME}" \
   --allowedTools "Bash,Read,Write,Edit,Glob" \
   --max-turns $MAX_TURNS \
   --append-system-prompt "$STOP_RULES" \
   --output-format json > agent_A_run.json 2>&1
 ```
 
+> **Env-var placement.** `CLAUDE_CODE_MAX_OUTPUT_TOKENS=...` must be on the **right side of the pipe** (immediately before `claude`). In bash, a `VAR=val cmd1 | cmd2` prefix only sets `VAR` in `cmd1`'s environment — putting it before `cat` would silently leave claude on its default cap.
+
 `--output-format json` emits a single JSON object when the agent finishes — resilient to long-running agents and session timeouts. `--max-turns` and `--append-system-prompt` are the runner-side turn controls defined in the [Turn-Control Configuration](#turn-control-configuration) section above.
+
+> **Diagnosing an in-flight run.** With `--output-format json`, `agent_A_run.json` stays at **0 bytes** for the entire duration of the run and is only written when claude exits. **An empty file is not evidence of a crash** — do NOT relaunch on that basis. To check progress while a run is in flight:
+>
+> 1. Confirm the process is alive: `pgrep -af 'claude -p' | grep agent_A` (the launcher's PID should still be there).
+> 2. Tail the live session transcript: the most recent `.jsonl` under `~/.claude/projects/-tmp-benchmark-{id}-agent-A/` is being appended turn-by-turn while the run is in flight.
+> 3. Only relaunch if (a) no `claude -p` process is running AND (b) `agent_A_run.json` is empty or fails `json.load()`. Before relaunching, kill any stragglers: `pkill -f 'claude -p.*agent_A'` — two `claude -p` processes writing to the same `> agent_A_run.json` produces interleaved bytes that won't parse.
 
 **When Agent A returns**, extract token count and check whether the turn cap fired:
 
@@ -334,13 +341,16 @@ Launch Agent B (lower output cap — B is markdown-only and doesn't need 64K):
 
 ```bash
 cd /tmp/benchmark_{id}/agent_B && \
-  CLAUDE_CODE_MAX_OUTPUT_TOKENS=$MAX_OUT_TOKENS_B \
-  cat prompt_B.txt | claude -p --model "{state['model']}" \
+  cat prompt_B.txt | CLAUDE_CODE_MAX_OUTPUT_TOKENS=$MAX_OUT_TOKENS_B claude -p --model "{state['model']}" \
   --allowedTools "Bash,Read,Write,Edit,Glob" \
   --max-turns $MAX_TURNS \
   --append-system-prompt "$STOP_RULES" \
   --output-format json > agent_B_run.json 2>&1
 ```
+
+> **Env-var placement.** `CLAUDE_CODE_MAX_OUTPUT_TOKENS=...` must be on the **right side of the pipe** (immediately before `claude`). A `VAR=val cmd1 | cmd2` prefix only sets `VAR` in `cmd1`'s environment, so a prefix before `cat` would silently leave claude on its default cap.
+
+> **Diagnosing an in-flight run.** With `--output-format json`, `agent_B_run.json` stays at **0 bytes** until claude exits — an empty file is not a crash, do NOT relaunch on that basis. To check progress: `pgrep -af 'claude -p' | grep agent_B` (process should still be there); tail the most recent `.jsonl` under `~/.claude/projects/-tmp-benchmark-{id}-agent-B/` for incremental turn-by-turn output. Only relaunch if (a) no `claude -p` process is running AND (b) the JSON file is empty or unparseable; kill any stragglers first with `pkill -f 'claude -p.*agent_B'`.
 
 Extract token count, check turn cap, and record:
 
