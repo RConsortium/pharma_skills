@@ -25,6 +25,7 @@ REQUIRED_PKGS=(
   graphicalMCP
   eventPred
   ggplot2
+  igraph        # graphicalMCP::graph_create() dependency — agents otherwise loop installing it mid-run
 )
 
 # Build R-side c("a","b",...) literal

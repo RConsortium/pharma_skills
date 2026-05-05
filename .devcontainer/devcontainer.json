@@ -6,7 +6,7 @@
     "ghcr.io/devcontainers/features/python:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "onCreateCommand": "bash .devcontainer/install-r.sh && bash .devcontainer/install-r-packages.sh && bash .devcontainer/install-claude-code.sh",
+  "onCreateCommand": "bash .devcontainer/install-r.sh && bash .devcontainer/install-r-packages.sh && bash .devcontainer/install-python-packages.sh && bash .devcontainer/install-claude-code.sh",
   "remoteEnv": {
     "R_LIBS_USER": "/workspaces/.R-library"
   },

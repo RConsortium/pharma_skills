@@ -7,9 +7,18 @@ Note that you should choose main as the screenshot is made before the PR is acce
 
 Then you will see clouds-based VS code. While selecting 2 core, you can use 60 hours per month free.
 
-Select the main branch. As you have notified that a folder of .devcontainer/ is created. This pre-build the environment with R and required R packages, together with Claude Code CLI. This will help save the session time from Claude Code.
+Select the main branch. As you have notified that a folder of .devcontainer/ is created. This pre-build the environment has:
 
-The installation time by expecation should be around 10mins.
+1) R 
+2) required R packages,
+3) Claude Code CLI
+4) Github CLI by default
+5) igraph
+6) python-docx
+
+This will help save the session time from Claude Code.
+
+The installation time by expecation should be less or around 10mins.
 
 We previously experience a hard time in Claude Code in Claude.ai for routine, where it didnt perform as expected (not starting up, installation failed, etc.)
 
@@ -31,7 +40,7 @@ claude --dangerously-skip-permissions
 Then login your claude account
 
 
-## Prompt 
+##  4. Implement Below 
 
 ```
 Read the skill instructions from the file at the path below, then execute them exactly:
@@ -39,4 +48,4 @@ File: ./_automation/benchmark-runner-codespaces/SKILL.md
 
 ```
 
-Your task is, by reading "./_automation/benchmark-runner-codespaces/SKILL.md", complete the task, and find corresponding delayed process of installating R environment, and parallel agent A and B tasks. Known issues including too many replicated turns in each tasks, and also always recognize old github issues instead of new github issues. Please propose solutions under this structure after you complete. I might expect this whole flow to be completed within 30 minutes. If you  experience longer, please stop, help digest and propose improvment
+

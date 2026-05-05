@@ -42,6 +42,32 @@ For release-asset upload there is currently no MCP tool — use `gh release uplo
 
 ---
 
+## Turn-Control Configuration
+
+Both Agent A and Agent B are launched with runner-side turn controls. These caps live in the runner, **not** in the skill prompt — the skill at `group-sequential-design/SKILL.md` is owned by another team and is not modified from this side.
+
+Define these once before launching either agent:
+
+```bash
+# Hard turn cap for both agents — fires loud (is_error=true, subtype=error_max_turns)
+# rather than silently truncating. Tuned from the 2026-05-05 opus-4-7 run where
+# Agent A ran 66 turns before the skill's pacing rules let it stop.
+MAX_TURNS=30
+
+# Runner-injected stop rules. Appended to the system prompt at launch time;
+# does NOT modify the skill's own SKILL.md or _skill_content.
+STOP_RULES="When the deliverables listed in your task prompt exist on disk, stop. Do not re-read files you wrote earlier this run, do not re-run scripts that already produced their expected output, do not re-print or re-summarize results that are already on disk."
+
+# Per-agent output ceilings. Skill output legitimately needs the headroom on A;
+# B is markdown-only and doesn't need 64K — a lower ceiling discourages drift.
+MAX_OUT_TOKENS_A=64000
+MAX_OUT_TOKENS_B=32000
+```
+
+When the turn cap fires, `agent_{A,B}_run.json` will contain `is_error: true` with `subtype: "error_max_turns"`. The runner must check `subtype` (not just `is_error`) and record `status: error_a_max_turns` / `error_b_max_turns` in `runs.json` rather than treating a capped run as a clean partial.
+
+---
+
 ## Phase Detection — Run Before Any Other Step
 
 Scan all benchmark eval issues to find any that are waiting for Phase 2 (Agent B + scoring) **for the model you are running**:
@@ -131,29 +157,41 @@ with open(os.path.join(agent_a_dir, "prompt_A.txt"), "w", encoding="utf-8") as f
 
 ```bash
 cd /tmp/benchmark_{id}/agent_A && \
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS=$MAX_OUT_TOKENS_A \
   cat prompt_A.txt | claude -p --model "{CURRENT_MODEL_NAME}" \
   --allowedTools "Bash,Read,Write,Edit,Glob" \
+  --max-turns $MAX_TURNS \
+  --append-system-prompt "$STOP_RULES" \
   --output-format json > agent_A_run.json 2>&1
 ```
 
-`--output-format json` emits a single JSON object when the agent finishes — resilient to long-running agents and session timeouts.
+`--output-format json` emits a single JSON object when the agent finishes — resilient to long-running agents and session timeouts. `--max-turns` and `--append-system-prompt` are the runner-side turn controls defined in the [Turn-Control Configuration](#turn-control-configuration) section above.
 
-**When Agent A returns**, extract token count:
+**When Agent A returns**, extract token count and check whether the turn cap fired:
 
 ```python
 import json
 d = json.load(open("/tmp/benchmark_{id}/agent_A/agent_A_run.json"))
 u = d.get("usage", {})
-tokens_a = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
+tokens_a   = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
 is_error_a = d.get("is_error", False)
+subtype_a  = d.get("subtype", "")  # "success", "error_max_turns", "error_during_execution"
+
+if subtype_a == "error_max_turns":
+    # Turn cap hit. Record as error_a_max_turns and surface to the issue
+    # comment so the skill owner can see the cap fired. Do NOT silently
+    # treat this as a clean partial.
+    status_for_runs = "error_a_max_turns"
+else:
+    status_for_runs = "partial_a"
 ```
 
-Record in `runs.json`:
+Record in `runs.json` (use `$status_for_runs` from the previous block — it will be `partial_a` on success, `error_a_max_turns` if the cap fired):
 
 ```bash
 python3 _automation/benchmark-runner/scripts/record_run_result.py \
   --eval-id {id} --model {CURRENT_MODEL_NAME} \
-  --status partial_a --tokens-a {tokens_a}
+  --status {status_for_runs} --tokens-a {tokens_a}
 ```
 
 ### Step 3 — Archive Agent A Output
@@ -292,28 +330,37 @@ with open("/tmp/benchmark_{id}/agent_B/prompt_B.txt", "w") as f:
     f.write(eval_case["_prompt_b"])
 ```
 
-Launch Agent B:
+Launch Agent B (lower output cap — B is markdown-only and doesn't need 64K):
 
 ```bash
 cd /tmp/benchmark_{id}/agent_B && \
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS=$MAX_OUT_TOKENS_B \
   cat prompt_B.txt | claude -p --model "{state['model']}" \
   --allowedTools "Bash,Read,Write,Edit,Glob" \
+  --max-turns $MAX_TURNS \
+  --append-system-prompt "$STOP_RULES" \
   --output-format json > agent_B_run.json 2>&1
 ```
 
-Extract token count and record:
+Extract token count, check turn cap, and record:
 
 ```python
 d = json.load(open("/tmp/benchmark_{id}/agent_B/agent_B_run.json"))
 u = d.get("usage", {})
-tokens_b = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
+tokens_b   = u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("output_tokens", 0)
 is_error_b = d.get("is_error", False)
+subtype_b  = d.get("subtype", "")
+
+if subtype_b == "error_max_turns":
+    status_for_runs = "error_b_max_turns"  # cap fired — flag it, still proceed to scoring
+else:
+    status_for_runs = "completed"
 ```
 
 ```bash
 python3 _automation/benchmark-runner/scripts/record_run_result.py \
   --eval-id {state["eval_id"]} --model {state["model"]} \
-  --status completed --tokens-b {tokens_b}
+  --status {status_for_runs} --tokens-b {tokens_b}
 ```
 
 ### Step 7 — Score Blinded Outputs
