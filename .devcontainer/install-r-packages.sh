@@ -8,8 +8,13 @@ R_LIBS_USER="${R_LIBS_USER:-/workspaces/.R-library}"
 mkdir -p "${R_LIBS_USER}"
 export R_LIBS_USER
 
-# Posit Public Package Manager — pre-built Linux binaries for Ubuntu 24.04 (noble).
-PPM_URL="https://packagemanager.posit.co/cran/__linux__/noble/latest"
+# Posit Public Package Manager — pre-built Linux binaries.
+# Codename is detected from the running container so this works on focal
+# (universal:2-linux today), jammy, or noble.
+. /etc/os-release
+CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-noble}}"
+PPM_URL="https://packagemanager.posit.co/cran/__linux__/${CODENAME}/latest"
+echo "[setup] Using PPM repo for ${CODENAME}: ${PPM_URL}"
 
 REQUIRED_PKGS=(
   jsonlite
