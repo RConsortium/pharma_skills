@@ -35,10 +35,10 @@ if [ -z "${CODENAME}" ]; then
 fi
 echo "[install-r] Detected Ubuntu ${VERSION_ID} (${CODENAME})"
 
-# Apt resilience: focal's archive.ubuntu.com mirrors are unreliable
-# (the distro is EOL and traffic gets deprioritized — see the connection
-# timeouts in the previous build log). Configure aggressive retries +
-# longer timeouts before the first fetch.
+# Apt resilience: configure aggressive retries + longer timeouts to
+# survive transient mirror flakiness. (Originally added because focal
+# mirrors were unreliable on universal:2-linux; harmless on noble, kept
+# as defense-in-depth.)
 sudo tee /etc/apt/apt.conf.d/80-codespaces-resilience > /dev/null <<'APTCONF'
 Acquire::Retries "10";
 Acquire::http::Timeout "30";
@@ -59,18 +59,23 @@ echo "deb [signed-by=/etc/apt/keyrings/cran-r.gpg] https://cloud.r-project.org/b
   | sudo tee /etc/apt/sources.list.d/cran-r.list > /dev/null
 
 sudo apt-get update -qq
-# r-base + system deps that R packages with C/C++ extensions need at install time.
-# libuv1-dev is required by the `fs` package (which is a transitive dep of fs ->
-# sass -> bslib -> rmarkdown -> ... -> gsDesign etc.). Without it the install
-# of `fs` fails and cascades to ~13 other packages.
+# r-base + every system dep pak might detect as missing during R-package
+# install. We pre-install all of them here so pak doesn't run its OWN
+# apt-get update + apt-get install cycle (which would double the apt time
+# on any slow mirror).
 #
-# Wrapped in a retry loop because focal's apt mirrors drop connections
-# mid-download intermittently. The Acquire::Retries config above handles
-# per-deb retries; this loop handles the case where apt as a whole returns
-# non-zero after exhausting them.
+# - libuv1-dev:   fs (transitive dep of bslib -> rmarkdown -> gsDesign etc.)
+# - pandoc:       knitr, rmarkdown
+# - libnode-dev:  V8 (used by gt -> juicyjuice)
+# - libxml2-dev .. libcairo2-dev: graphics + markup deps for ggplot2, gt, etc.
+#
+# Wrapped in a retry loop as defense-in-depth against transient apt mirror
+# failures. The Acquire::Retries config above handles per-deb retries; this
+# loop handles the case where apt as a whole returns non-zero.
 APT_PKGS="r-base r-base-dev \
-  libuv1-dev libxml2-dev libfontconfig1-dev libfreetype6-dev \
-  libharfbuzz-dev libfribidi-dev libpng-dev libjpeg-dev libtiff5-dev \
+  pandoc libnode-dev libuv1-dev \
+  libxml2-dev libfontconfig1-dev libfreetype-dev \
+  libharfbuzz-dev libfribidi-dev libpng-dev libjpeg-dev libtiff-dev \
   libcairo2-dev"
 
 for attempt in 1 2 3; do
