@@ -23,9 +23,10 @@ echo "[setup] Installing Python packages: ${PKGS[*]}"
 
 # Verify each loads
 python3 - <<'PYEOF'
-import importlib, sys
+import importlib.util
+import sys
 mods = {"python-docx": "docx"}
-failed = [pkg for pkg, mod in mods.items() if (importlib.util.find_spec(mod) is None)]
+failed = [pkg for pkg, mod in mods.items() if importlib.util.find_spec(mod) is None]
 if failed:
     print(f"[setup] FAILED to import: {failed}", file=sys.stderr)
     sys.exit(1)
