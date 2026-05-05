@@ -44,7 +44,7 @@ Then login your claude account
 
 ```
 Read the skill instructions from the file at the path below, then execute them exactly:
-File: ./_automation/benchmark-runner-codespaces/SKILL.md
+File: ./_automation/benchmark-runner/SKILL.md
 
 ```
 
