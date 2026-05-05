@@ -5,6 +5,24 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# 0. Fast-path short-circuit (fix 1.3): if R is installed and every required
+#    package is loadable, exit immediately — no apt, no pak, no network.
+#    This is the warm-codespace path (devcontainer prebuild already installed
+#    everything into /workspaces/.R-library).
+# ---------------------------------------------------------------------------
+if command -v Rscript &>/dev/null; then
+  if Rscript --no-save -e "
+    pkgs <- c('jsonlite','digest','gsDesign','gsDesign2','lrstat',
+              'graphicalMCP','eventPred','ggplot2')
+    missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+    if (length(missing)) quit(status = 1) else quit(status = 0)
+  " &>/dev/null; then
+    echo "[setup] R + all required packages already present — skipping bootstrap."
+    exit 0
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # 1. Install R base if not present
 # ---------------------------------------------------------------------------
 if ! command -v R &>/dev/null; then
@@ -60,82 +78,26 @@ pin_host "cran.r-project.org"
 pin_host "cloud.r-project.org"
 
 # ---------------------------------------------------------------------------
-# 4. Bootstrap pak — the fast parallel package manager for R.
-#    pak: parallel downloads, automatic system-dep detection, binary packages.
-#
-#    Install strategy (in order of preference):
-#      a) Already installed AND built for linux-gnu → skip.
-#         A pre-existing linux-musl build (from the r-lib CDN) is treated
-#         as unusable here because its statically-linked libcurl ships with
-#         a vendored CA bundle and ignores CURL_CA_BUNDLE / SSL_CERT_FILE.
-#         In sandboxes behind a TLS-intercepting egress proxy that signs
-#         with a custom root CA, that build fails every CRAN/Bioc fetch
-#         with "self signed certificate in certificate chain". We remove it
-#         and reinstall from source.
-#      b) Install from source via CRAN. The resulting pak links against
-#         system libcurl/openssl (libcurl4-openssl-dev + libssl-dev from
-#         Step 2), which honor the system CA bundle and any proxy CAs in
-#         /etc/ssl/certs/ca-certificates.crt.
-#      c) r-lib CDN pre-built binary as a last resort. Faster on
-#         unrestricted networks but may fail at runtime in proxied
-#         sandboxes (see strategy a).
+# 4. Bootstrap pak from Posit PPM noble binaries (fix 1.4).
+#    No source compile, no CRAN fallback, no r-lib CDN fallback. PPM ships a
+#    pre-built linux-gnu pak that links against system libcurl/openssl.
 # ---------------------------------------------------------------------------
 echo "[setup] Checking for pak..."
 Rscript --no-save -e "
-pak_platform_ok <- function() {
-  sitrep <- utils::capture.output(pak::pak_sitrep())
-  any(grepl('pak platform:.*linux-gnu', sitrep))
-}
+ppm <- 'https://packagemanager.posit.co/cran/__linux__/noble/latest'
 
 if (requireNamespace('pak', quietly = TRUE)) {
-  if (isTRUE(try(pak_platform_ok(), silent = TRUE))) {
-    message('[setup] pak ', as.character(packageVersion('pak')),
-            ' (linux-gnu) already installed.')
-    quit(status = 0)
-  }
-  message('[setup] Existing pak is not a linux-gnu build — removing and ',
-          'reinstalling from source so it uses system libcurl/openssl.')
-  try(utils::remove.packages('pak'), silent = TRUE)
-}
-
-message('[setup] Installing pak from source (links against system ',
-        'libcurl/openssl so the system CA bundle is honored)...')
-
-# Strategy (b): source install from CRAN. Requires libcurl4-openssl-dev +
-# libssl-dev, which Step 2 already installs.
-ok <- tryCatch({
-  install.packages(
-    'pak',
-    type  = 'source',
-    repos = 'https://cloud.r-project.org',
-    quiet = FALSE
-  )
-  requireNamespace('pak', quietly = TRUE)
-}, error = function(e) FALSE, warning = function(w) FALSE)
-
-if (ok) {
-  message('[setup] pak ', as.character(packageVersion('pak')),
-          ' installed from CRAN source.')
+  message('[setup] pak ', as.character(packageVersion('pak')), ' already installed.')
   quit(status = 0)
 }
 
-# Strategy (c): pak CDN binary fallback — may not work behind a
-# TLS-intercepting proxy, but works on unrestricted networks.
-message('[setup] CRAN source build failed — trying r-lib CDN binary...')
-cdn_url <- sprintf(
-  'https://r-lib.github.io/p/pak/stable/%s/%s/%s',
-  .Platform\$pkgType, R.Version()\$os, R.Version()\$arch
-)
-tryCatch({
-  install.packages('pak', repos = cdn_url, quiet = FALSE)
-}, error = function(e) stop('[setup] Failed to install pak: ',
-                            conditionMessage(e)))
+message('[setup] Installing pak from PPM noble binary repo...')
+install.packages('pak', repos = ppm, quiet = FALSE)
 
 if (!requireNamespace('pak', quietly = TRUE)) {
-  stop('[setup] pak installed but cannot be loaded.')
+  stop('[setup] pak install failed — PPM unreachable or noble binary missing.')
 }
-message('[setup] pak ', as.character(packageVersion('pak')),
-        ' installed from r-lib CDN.')
+message('[setup] pak ', as.character(packageVersion('pak')), ' installed from PPM.')
 " 2>&1
 
 # ---------------------------------------------------------------------------
@@ -163,26 +125,24 @@ options(
   warn = 1
 )
 
-# Choose repository: PPM for pre-compiled binaries, CRAN as fallback.
-ppm_url <- if (nzchar(os_codename)) {
-  sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", os_codename)
-} else {
-  NULL
+# PPM-only (fix 1.4): require pre-compiled binaries; no CRAN-source fallback.
+if (!nzchar(os_codename)) {
+  stop("[setup] OS codename undetected — PPM URL cannot be built. ",
+       "PPM-only mode requires Ubuntu (e.g. noble, jammy).")
 }
+ppm_url <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", os_codename)
 
-ppm_ok <- !is.null(ppm_url) && tryCatch({
+ppm_ok <- tryCatch({
   nrow(available.packages(repos = ppm_url)) > 100
 }, error = function(e) FALSE)
 
-repo_url <- if (ppm_ok) {
-  message("[setup] Using PPM binary repo: ", ppm_url)
-  ppm_url
-} else {
-  message("[setup] PPM unavailable — using CRAN.")
-  "https://cran.r-project.org"
+if (!ppm_ok) {
+  stop("[setup] PPM unreachable at ", ppm_url,
+       " — refusing to fall back to CRAN source builds (fix 1.4).")
 }
 
-options(repos = c(CRAN = repo_url))
+message("[setup] Using PPM binary repo: ", ppm_url)
+options(repos = c(CRAN = ppm_url))
 
 # Packages required by benchmark-runner automation scripts
 automation_pkgs <- c(

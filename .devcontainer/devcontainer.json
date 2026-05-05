@@ -1,0 +1,23 @@
+{
+  "name": "pharma-skills (R + Claude Code)",
+  "image": "mcr.microsoft.com/devcontainers/universal:2-linux",
+  "features": {
+    "ghcr.io/rocker-org/devcontainer-features/r-apt:latest": {
+      "vscodeRSupport": "full",
+      "installRMarkdown": false,
+      "installVscDebugger": false
+    }
+  },
+  "onCreateCommand": "bash .devcontainer/install-r-packages.sh",
+  "remoteEnv": {
+    "R_LIBS_USER": "/workspaces/.R-library"
+  },
+  "mounts": [
+    "source=pharma-skills-rlib,target=/workspaces/.R-library,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": ["REditorSupport.r", "anthropic.claude-code"]
+    }
+  }
+}
