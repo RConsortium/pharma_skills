@@ -35,8 +35,19 @@ if [ -z "${CODENAME}" ]; then
 fi
 echo "[install-r] Detected Ubuntu ${VERSION_ID} (${CODENAME})"
 
+# Apt resilience: focal's archive.ubuntu.com mirrors are unreliable
+# (the distro is EOL and traffic gets deprioritized — see the connection
+# timeouts in the previous build log). Configure aggressive retries +
+# longer timeouts before the first fetch.
+sudo tee /etc/apt/apt.conf.d/80-codespaces-resilience > /dev/null <<'APTCONF'
+Acquire::Retries "10";
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+Acquire::http::No-Cache "true";
+APTCONF
+
 sudo apt-get update -qq
-sudo apt-get install -y --no-install-recommends \
+sudo apt-get install -y --no-install-recommends --fix-missing \
   ca-certificates curl gnupg lsb-release
 
 # CRAN signing key (Marutter / R Foundation). Stored in /etc/apt/keyrings.
@@ -52,18 +63,28 @@ sudo apt-get update -qq
 # libuv1-dev is required by the `fs` package (which is a transitive dep of fs ->
 # sass -> bslib -> rmarkdown -> ... -> gsDesign etc.). Without it the install
 # of `fs` fails and cascades to ~13 other packages.
-sudo apt-get install -y --no-install-recommends \
-  r-base r-base-dev \
-  libuv1-dev \
-  libxml2-dev \
-  libfontconfig1-dev \
-  libfreetype6-dev \
-  libharfbuzz-dev \
-  libfribidi-dev \
-  libpng-dev \
-  libjpeg-dev \
-  libtiff5-dev \
-  libcairo2-dev
+#
+# Wrapped in a retry loop because focal's apt mirrors drop connections
+# mid-download intermittently. The Acquire::Retries config above handles
+# per-deb retries; this loop handles the case where apt as a whole returns
+# non-zero after exhausting them.
+APT_PKGS="r-base r-base-dev \
+  libuv1-dev libxml2-dev libfontconfig1-dev libfreetype6-dev \
+  libharfbuzz-dev libfribidi-dev libpng-dev libjpeg-dev libtiff5-dev \
+  libcairo2-dev"
+
+for attempt in 1 2 3; do
+  if sudo apt-get install -y --no-install-recommends --fix-missing ${APT_PKGS}; then
+    break
+  fi
+  if [ "${attempt}" -eq 3 ]; then
+    echo "[install-r] apt install failed after 3 attempts." >&2
+    exit 1
+  fi
+  echo "[install-r] apt install failed (attempt ${attempt}/3) — retrying after 15s..."
+  sleep 15
+  sudo apt-get update -qq || true
+done
 
 R --version | head -1
 echo "[install-r] R installation complete."
