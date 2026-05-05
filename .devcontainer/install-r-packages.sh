@@ -32,10 +32,9 @@ R_PKGS=$(printf '"%s",' "${REQUIRED_PKGS[@]}")
 R_PKGS="c(${R_PKGS%,})"
 
 Rscript --no-save -e "
-# PPM serves source packages by default and only delivers pre-compiled binaries
-# when the HTTP User-Agent identifies the OS distribution. Without this, every
-# package recompiles from source — turning a ~3 min install into ~20 min. See
-# https://docs.posit.co/rspm/admin/serving-binaries.html
+# HTTPUserAgent is needed so PPM serves pre-compiled binaries (instead of
+# source) for the pak bootstrap install. Once pak itself is installed, it
+# handles PPM binary detection on its own.
 options(
   repos          = c(CRAN = '${PPM_URL}'),
   HTTPUserAgent  = sprintf(
@@ -46,15 +45,28 @@ options(
 )
 lib <- Sys.getenv('R_LIBS_USER')
 .libPaths(c(lib, .libPaths()))
+
+# Bootstrap pak. Installs as a pre-built PPM binary thanks to the
+# HTTPUserAgent option above.
+if (!requireNamespace('pak', quietly = TRUE)) {
+  message('[setup] Bootstrapping pak from PPM...')
+  install.packages('pak', lib = lib)
+}
+
 pkgs <- ${R_PKGS}
 installed <- rownames(installed.packages(lib.loc = lib))
 missing <- pkgs[!pkgs %in% installed]
+
 if (length(missing)) {
-  message('[setup] Installing from PPM: ', paste(missing, collapse=', '))
-  install.packages(missing, lib = lib, Ncpus = parallel::detectCores())
+  message('[setup] Installing via pak: ', paste(missing, collapse = ', '))
+  # pak: parallel downloads, PPM-aware binary delivery, automatic apt sysreqs
+  # detection (e.g. libuv1-dev for fs). install-r.sh already pre-installs the
+  # common -dev packages so this normally short-circuits the apt step.
+  pak::pkg_install(missing, lib = lib, ask = FALSE)
 } else {
   message('[setup] All packages already present in ', lib)
 }
+
 for (p in pkgs) {
   if (!requireNamespace(p, quietly = TRUE, lib.loc = lib)) {
     stop('[setup] Failed to load: ', p)
