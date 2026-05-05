@@ -9,6 +9,8 @@ Then you will see clouds-based VS code. While selecting 2 core, you can use 60 h
 
 Select the main branch. As you have notified that a folder of .devcontainer/ is created. This pre-build the environment with R and required R packages, together with Claude Code CLI. This will help save the session time from Claude Code.
 
+The installation time by expecation should be around 10mins.
+
 We previously experience a hard time in Claude Code in Claude.ai for routine, where it didnt perform as expected (not starting up, installation failed, etc.)
 
 ## 2. login to Github Through CLI; This will ensure you can push your automated report to Github Issues
