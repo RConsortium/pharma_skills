@@ -8,7 +8,7 @@
       "installVscDebugger": false
     }
   },
-  "onCreateCommand": "bash .devcontainer/install-r-packages.sh",
+  "onCreateCommand": "bash .devcontainer/install-r-packages.sh && bash .devcontainer/install-claude-code.sh",
   "remoteEnv": {
     "R_LIBS_USER": "/workspaces/.R-library"
   },
