@@ -3,6 +3,11 @@ __pycache__/
 *.pyc
 *.pyo
 
+# R session files — created by interactive R sessions, not useful in the repo
+.RData
+.Rhistory
+.Rproj.user/
+
 # Local AI rule definitions (user-specific, not committed at project level)
 AGENTS.md
 .cursorrules
